@@ -46,7 +46,18 @@ export type ViewportContext = {
 
 export type TransformMode = 'translate' | 'rotate' | 'scale';
 
-const SUPPORTED_EXTENSIONS = ['.glb', '.gltf', '.fbx', '.obj', '.stl', '.dae', '.3ds'];
+/**
+ * Formats accepted on import. Deliberately limited to the two containers that
+ * can carry their textures inside the file: .glb (always) and binary .fbx (when
+ * exported with "Embed Textures"). Everything else — .gltf, .obj, .stl, .dae —
+ * references textures by external path, which we cannot resolve from a single
+ * uploaded file, so the model would arrive untextured.
+ *
+ * The loader in `loadModelFromBuffer` still understands the older formats so
+ * that models imported before this restriction keep working.
+ */
+export const IMPORT_EXTENSIONS = ['.glb', '.fbx'] as const;
+export const IMPORT_ACCEPT = IMPORT_EXTENSIONS.join(',');
 
 const MATERIAL_TEXTURE_KEYS = [
   'map',
@@ -95,7 +106,7 @@ function disposeObject3D(object: THREE.Object3D) {
 
 export function isSupportedModelFile(filename: string): boolean {
   const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
-  return SUPPORTED_EXTENSIONS.includes(ext);
+  return (IMPORT_EXTENSIONS as readonly string[]).includes(ext);
 }
 
 export function createViewport(
