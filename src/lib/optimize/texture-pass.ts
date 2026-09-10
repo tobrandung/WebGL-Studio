@@ -18,7 +18,11 @@ import { EXTTextureWebP } from '@gltf-transform/extensions';
 import { listTextureSlots } from '@gltf-transform/functions';
 import { canvasToBlob } from '@/lib/hdri/decode-sdr';
 import { gpuBytesFor, readImageSize, targetSize } from './image-fit.ts';
-import { NORMAL_MAP_MIN_QUALITY, type OptimizeSettings } from './types.ts';
+import {
+  DATA_MAP_MIN_QUALITY,
+  NORMAL_MAP_MIN_QUALITY,
+  type OptimizeSettings,
+} from './types.ts';
 
 /** Containers `createImageBitmap` can decode. KTX2/Basis is not one of them. */
 const DECODABLE = ['image/png', 'image/jpeg', 'image/webp'];
@@ -33,14 +37,21 @@ function createCanvas(width: number, height: number): AnyCanvas {
   return canvas;
 }
 
+/** Slots whose contents are data, not a picture. */
+const DATA_SLOTS = /^(occlusion|metallicRoughness|specularGlossiness)Texture$/;
+
 /**
  * Normal maps store direction vectors, not colour. Lossy compression bends
  * them and the error surfaces as banding in the specular highlight, which
  * reads as a broken material rather than a soft image — so they keep their own
- * floor no matter where the slider sits.
+ * floor no matter where the slider sits. Packed ORM maps get a lower floor for
+ * the same kind of reason: chroma subsampling bleeds their channels together.
+ *
+ * A texture used in both a colour and a data slot takes the stricter branch.
  */
 function qualityForSlots(slots: string[], base: number): number {
   if (slots.includes('normalTexture')) return Math.max(base, NORMAL_MAP_MIN_QUALITY);
+  if (slots.some((slot) => DATA_SLOTS.test(slot))) return Math.max(base, DATA_MAP_MIN_QUALITY);
   return base;
 }
 
@@ -52,17 +63,49 @@ export type TextureOriginal = {
   name: string;
 };
 
+/**
+ * What a texture is for, in German. Exporters usually leave textures
+ * unnamed, and "Textur 7" tells the user nothing about which one has a
+ * problem — the material slot does.
+ */
+const SLOT_LABEL: Record<string, string> = {
+  baseColorTexture: 'Basisfarbe',
+  normalTexture: 'Normal-Map',
+  metallicRoughnessTexture: 'Metallic/Roughness',
+  occlusionTexture: 'Ambient Occlusion',
+  emissiveTexture: 'Emission',
+  clearcoatTexture: 'Clearcoat',
+  clearcoatNormalTexture: 'Clearcoat-Normal',
+  clearcoatRoughnessTexture: 'Clearcoat-Roughness',
+  transmissionTexture: 'Transmission',
+  thicknessTexture: 'Dicke',
+  sheenColorTexture: 'Sheen-Farbe',
+  sheenRoughnessTexture: 'Sheen-Roughness',
+  specularTexture: 'Specular',
+};
+
+function describeTexture(name: string, uri: string, slots: string[], index: number): string {
+  if (name) return name;
+  const labels = [...new Set(slots.map((slot) => SLOT_LABEL[slot]).filter(Boolean))];
+  if (labels.length) return labels.join(' + ');
+  if (uri) return uri;
+  return `Textur ${index + 1}`;
+}
+
 /** Snapshot the images as they are now. Call once, after cleaning. */
 export function captureTextureOriginals(document: Document): TextureOriginal[] {
   return document
     .getRoot()
     .listTextures()
-    .map((texture, index) => ({
-      image: texture.getImage() ?? new Uint8Array(),
-      mimeType: texture.getMimeType(),
-      slots: listTextureSlots(texture),
-      name: texture.getName() || texture.getURI() || `Textur ${index + 1}`,
-    }));
+    .map((texture, index) => {
+      const slots = listTextureSlots(texture);
+      return {
+        image: texture.getImage() ?? new Uint8Array(),
+        mimeType: texture.getMimeType(),
+        slots,
+        name: describeTexture(texture.getName(), texture.getURI(), slots, index),
+      };
+    });
 }
 
 export type TexturePassOptions = Pick<
@@ -79,6 +122,8 @@ export type TexturePassResult = {
   gpuBytes: number;
   /** Textures left untouched, with the reason. */
   skipped: { name: string; reason: string }[];
+  /** Textures that were re-encoded but deserve a caveat. */
+  warnings: { name: string; reason: string }[];
 };
 
 /**
@@ -216,6 +261,7 @@ export async function runTexturePass(
 ): Promise<TexturePassResult> {
   const textures = document.getRoot().listTextures();
   const skipped: TexturePassResult['skipped'] = [];
+  const warnings: TexturePassResult['warnings'] = [];
   let gpuBytes = 0;
 
   for (const [index, texture] of textures.entries()) {
@@ -229,6 +275,18 @@ export async function runTexturePass(
       });
       restore(texture, original);
     } else {
+      // Re-encoding a lossy source is lossy a second time: the first
+      // encoder's artefacts are treated as detail worth preserving.
+      if (
+        options.textureFormat === 'webp' &&
+        (original.mimeType === 'image/webp' || original.mimeType === 'image/jpeg')
+      ) {
+        warnings.push({
+          name: original.name,
+          reason: `war schon ${original.mimeType === 'image/webp' ? 'WebP' : 'JPEG'} — wird erneut verlustbehaftet komprimiert`,
+        });
+      }
+
       try {
         const encoded = await encodeTexture(original, index, options, cache);
         if (encoded) {
@@ -273,7 +331,7 @@ export async function runTexturePass(
     0,
   );
 
-  return { textureBytes, gpuBytes, skipped };
+  return { textureBytes, gpuBytes, skipped, warnings };
 }
 
 /** Puts a texture back to its captured source, undoing an earlier pass. */

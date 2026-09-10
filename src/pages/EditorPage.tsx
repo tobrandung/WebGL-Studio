@@ -13,6 +13,7 @@ import {
   type LightType,
   type EnvironmentConfig,
 } from '@/lib/db';
+import { formatBytes } from '@/lib/utils';
 import { useModels } from '@/hooks/useModels';
 import { useHistory, stateCommand, type Command } from '@/hooks/useHistory';
 import {
@@ -966,6 +967,21 @@ export function EditorPage() {
       const db = await getDB();
       const current = await db.get('blobs', modelId);
       if (!entry || !current) return;
+
+      // Replacing parks the original for undo, so it briefly holds the source
+      // twice plus the result twice. Quota failures in IndexedDB surface as an
+      // opaque abort mid-transaction, which would leave the model pointing at
+      // nothing — better to say so before starting.
+      const needed = current.data.byteLength * 2 + buffer.byteLength * 2;
+      const quota = await navigator.storage?.estimate?.().catch(() => null);
+      if (quota?.quota && quota.usage !== undefined && quota.quota - quota.usage < needed) {
+        window.alert(
+          `Zu wenig Speicher im Browser: benötigt werden etwa ${formatBytes(needed)}, ` +
+            `frei sind ${formatBytes(quota.quota - quota.usage)}. ` +
+            'Lösche ein Projekt oder gib Browser-Speicher frei.',
+        );
+        return;
+      }
 
       const previousId = generateId();
       const nextId = generateId();

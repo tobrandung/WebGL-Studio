@@ -30,8 +30,15 @@ export type CompareView = {
   dispose: () => void;
 };
 
-/** Loads a GLB without touching any editor state. */
-async function loadPreviewModel(buffer: ArrayBuffer): Promise<THREE.Object3D> {
+/**
+ * Loads a GLB without touching any editor state. Mirrors the loader setup in
+ * `viewport.ts` — including KTX2, because a source model may already carry
+ * KTX2 textures and the left-hand side has to show it as it is.
+ */
+async function loadPreviewModel(
+  renderer: THREE.WebGLRenderer,
+  buffer: ArrayBuffer,
+): Promise<THREE.Object3D> {
   const loader = new GLTFLoader();
   const draco = new DRACOLoader();
   draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
@@ -39,11 +46,19 @@ async function loadPreviewModel(buffer: ArrayBuffer): Promise<THREE.Object3D> {
   // needed on nearly every rebuild — warming it up front avoids a stall.
   draco.preload();
   loader.setDRACOLoader(draco);
+
+  const { KTX2Loader } = await import('three/addons/loaders/KTX2Loader.js');
+  const ktx2 = new KTX2Loader();
+  ktx2.setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/libs/basis/');
+  ktx2.detectSupport(renderer);
+  loader.setKTX2Loader(ktx2);
+
   try {
     const gltf = await loader.parseAsync(buffer, '');
     return gltf.scene;
   } finally {
     draco.dispose();
+    ktx2.dispose();
   }
 }
 
@@ -64,8 +79,11 @@ export function createCompareView(container: HTMLElement): CompareView {
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  // Matched to the editor viewport (viewport.ts) so the comparison does not
+  // look like a differently graded render of the same model.
+  renderer.toneMappingExposure = 1.2;
 
   const sceneA = new THREE.Scene();
   const sceneB = new THREE.Scene();
@@ -81,7 +99,12 @@ export function createCompareView(container: HTMLElement): CompareView {
   // and a comparison has to isolate what compression changed. The same PMREM
   // texture serves both scenes — textures, unlike Object3Ds, can be shared.
   const pmrem = new THREE.PMREMGenerator(renderer);
-  const environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  // RoomEnvironment is a Scene full of meshes and has no dispose of its own;
+  // once the PMREM is baked its geometries and materials are dead weight that
+  // would accumulate with every dialog open.
+  const room = new RoomEnvironment();
+  const environment = pmrem.fromScene(room, 0.04).texture;
+  disposeObject3D(room);
   sceneA.environment = environment;
   sceneB.environment = environment;
   for (const scene of [sceneA, sceneB]) {
@@ -174,7 +197,7 @@ export function createCompareView(container: HTMLElement): CompareView {
         return;
       }
 
-      const object = await loadPreviewModel(buffer);
+      const object = await loadPreviewModel(renderer, buffer);
       // Recentred the same way the editor centres a model, so the two sides
       // stay aligned even when compression nudges the bounding box.
       const center = new THREE.Box3().setFromObject(object).getCenter(new THREE.Vector3());

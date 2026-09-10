@@ -39,6 +39,8 @@ export type ModelOptimizer = {
   progress: OptimizeProgress | null;
   /** Encoded GLB for the comparison view; null until one has been built. */
   preview: ArrayBuffer | null;
+  /** Per-texture caveats from the last run, ready to render. */
+  notes: string[];
   setSettings: (patch: Partial<OptimizeSettings>) => void;
   /** Runs once more and hands back the encoded GLB. */
   finish: () => Promise<ArrayBuffer | null>;
@@ -65,6 +67,7 @@ export function useModelOptimizer(
   const [measured, setMeasured] = useState<SizeBreakdown | null>(null);
   const [progress, setProgress] = useState<OptimizeProgress | null>(null);
   const [preview, setPreview] = useState<ArrayBuffer | null>(null);
+  const [notes, setNotes] = useState<string[]>([]);
 
   const sessionRef = useRef<OptimizeSession | null>(null);
   /** Guards against a superseded run resolving after a newer one. */
@@ -85,6 +88,7 @@ export function useModelOptimizer(
     setMeasured(null);
     setAnalysis(null);
     setPreview(null);
+    setNotes([]);
 
     void (async () => {
       try {
@@ -122,13 +126,14 @@ export function useModelOptimizer(
         // measuring settings the user has already moved past.
         if (tokenRef.current !== token) return;
         try {
-          const { breakdown } = await session.run(next, {
+          const { breakdown, notes: runNotes } = await session.run(next, {
             onProgress: (value) => {
               if (tokenRef.current === token) setProgress(value);
             },
           });
           if (tokenRef.current !== token) return;
           setMeasured(breakdown);
+          setNotes(runNotes);
           setProgress(null);
           setStatus('ready');
         } catch (cause) {
@@ -160,6 +165,7 @@ export function useModelOptimizer(
           if (tokenRef.current !== token) return;
           // A real write measures exactly, so it also supersedes the number.
           setMeasured(result.breakdown);
+          setNotes(result.notes);
           setPreview(result.buffer ?? null);
         } catch {
           // A failed preview must not disturb the numbers or the confirm path.
@@ -241,6 +247,7 @@ export function useModelOptimizer(
         );
       if (tokenRef.current !== token) return null;
       setMeasured(result.breakdown);
+      setNotes(result.notes);
       setProgress(null);
       setStatus('ready');
       return result.buffer ?? null;
@@ -253,5 +260,16 @@ export function useModelOptimizer(
     }
   }, []);
 
-  return { status, error, settings, analysis, size, progress, preview, setSettings, finish };
+  return {
+    status,
+    error,
+    settings,
+    analysis,
+    size,
+    progress,
+    preview,
+    notes,
+    setSettings,
+    finish,
+  };
 }

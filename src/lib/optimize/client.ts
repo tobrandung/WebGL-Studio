@@ -17,7 +17,7 @@ export type RunOptions = {
   wantBuffer?: boolean;
 };
 
-export type RunResult = { breakdown: SizeBreakdown; buffer?: ArrayBuffer };
+export type RunResult = { breakdown: SizeBreakdown; notes: string[]; buffer?: ArrayBuffer };
 
 type Pending = {
   resolve: (value: never) => void;
@@ -96,7 +96,11 @@ export class OptimizeSession {
         break;
       case 'result':
         this.pending.delete(message.id);
-        entry.resolve({ breakdown: message.breakdown, buffer: message.buffer } as never);
+        entry.resolve({
+          breakdown: message.breakdown,
+          notes: message.notes,
+          buffer: message.buffer,
+        } as never);
         break;
       case 'error':
         this.pending.delete(message.id);

@@ -103,7 +103,8 @@ export function OptimizeDialog({
    */
   const [degraded, setDegraded] = useState(false);
   const optimizer = useModelOptimizer(active, { preview: !degraded });
-  const { analysis, size, settings, setSettings, status, error, progress, preview } = optimizer;
+  const { analysis, size, settings, setSettings, status, error, progress, preview, notes } =
+    optimizer;
 
   useEffect(() => {
     if (!analysis) return;
@@ -308,6 +309,24 @@ export function OptimizeDialog({
                 {progress.label}
               </p>
             </div>
+          )}
+
+          {notes.length > 0 && (
+            <Notice variant="warning">
+              <ul className="space-y-0.5">
+                {notes.map((note, index) => (
+                  <li key={`${index}-${note}`}>{note}</li>
+                ))}
+              </ul>
+            </Notice>
+          )}
+
+          {settings.textureFormat === 'webp' && (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              WebP-Texturen brauchen die glTF-Erweiterung <code>EXT_texture_webp</code>. Editor,
+              Vorschau und Widget können das — ältere Viewer und manche DCC-Importer nicht. Wenn du
+              die Datei auch außerhalb weitergibst, ist „unverändert“ die portablere Wahl.
+            </p>
           )}
 
           {error && <Notice variant="error">{error}</Notice>}

@@ -906,8 +906,9 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
                     <InfoHint variant="warning" label="Große Modelle">
                       Dateien über 20&nbsp;MiB werden von jsDelivr mit 403 abgelehnt. Der Embed-Code
                       lädt sie daher über <code>raw.githubusercontent.com</code> (funktioniert, ist
-                      aber kein CDN). Für schnelleres Laden das GLB komprimieren (Draco / Texturen),
-                      damit es unter 20&nbsp;MiB kommt.
+                      aber kein CDN). Für schnelleres Laden im Szenenbaum über das Menü des Modells
+                      „Optimieren“ ausführen — Texturen als WebP und Draco-Geometrie bringen ein
+                      solches Modell in der Regel deutlich unter 20&nbsp;MiB.
                     </InfoHint>
                   </div>
                 )}

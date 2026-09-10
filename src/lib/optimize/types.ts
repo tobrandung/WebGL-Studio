@@ -34,6 +34,14 @@ export const DEFAULT_SETTINGS: OptimizeSettings = {
  */
 export const NORMAL_MAP_MIN_QUALITY = 0.95;
 
+/**
+ * Occlusion/roughness/metalness maps pack three unrelated values into R, G
+ * and B. WebP subsamples chroma, so the channels bleed into one another and
+ * roughness picks up the ambient-occlusion pattern. Less sensitive than a
+ * normal map, but still not a picture — it gets a floor of its own.
+ */
+export const DATA_MAP_MIN_QUALITY = 0.9;
+
 /** Stage of an optimize job, in the order they run. */
 export type OptimizePhase = 'parse' | 'clean' | 'textures' | 'geometry' | 'write';
 

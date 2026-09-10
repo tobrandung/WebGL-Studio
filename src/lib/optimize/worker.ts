@@ -33,7 +33,13 @@ export type OptimizeRequest =
 export type OptimizeResponse =
   | { type: 'opened'; id: number; analysis: SourceAnalysis }
   | { type: 'progress'; id: number; phase: OptimizePhase; progress: number; label: string }
-  | { type: 'result'; id: number; breakdown: SizeBreakdown; buffer?: ArrayBuffer }
+  | {
+      type: 'result';
+      id: number;
+      breakdown: SizeBreakdown;
+      notes: string[];
+      buffer?: ArrayBuffer;
+    }
   | { type: 'error'; id: number; message: string };
 
 const PHASE_LABEL: Record<OptimizePhase, string> = {
@@ -100,6 +106,29 @@ async function open(id: number, buffer: ArrayBuffer): Promise<void> {
   post({ type: 'opened', id, analysis });
 }
 
+/**
+ * Collapses per-texture entries into one line per cause. Twenty-six textures
+ * with the same caveat is one thing to know, not twenty-six; the names are
+ * only worth listing while there are few enough to read.
+ */
+function summarise(entries: { name: string; reason: string }[], suffix: string): string[] {
+  const byReason = new Map<string, string[]>();
+  for (const entry of entries) {
+    const names = byReason.get(entry.reason) ?? [];
+    names.push(entry.name);
+    byReason.set(entry.reason, names);
+  }
+
+  return [...byReason].map(([reason, names]) => {
+    const unique = [...new Set(names)];
+    const subject =
+      names.length === 1
+        ? unique[0]
+        : `${names.length} Texturen (${unique.slice(0, 3).join(', ')}${unique.length > 3 ? ', …' : ''})`;
+    return `${subject}: ${reason}${suffix}`;
+  });
+}
+
 async function run(id: number, settings: OptimizeSettings, wantBuffer: boolean): Promise<void> {
   if (!document || !analysis) throw new Error('Kein Modell geöffnet');
 
@@ -119,12 +148,17 @@ async function run(id: number, settings: OptimizeSettings, wantBuffer: boolean):
   // Skip the write when only the textures moved and the caller just wants a
   // number: re-serialising would re-run Draco over every primitive for a
   // result we can already account for exactly.
+  const notes = summarise(textures.skipped, ' — bleibt unverändert').concat(
+    summarise(textures.warnings, ''),
+  );
+
   const canReuseGeometry = !wantBuffer && lastWrite?.draco === settings.draco;
   if (canReuseGeometry && lastWrite) {
     report(id, 'write', 1);
     post({
       type: 'result',
       id,
+      notes,
       breakdown: {
         total: textures.textureBytes + lastWrite.geometryBytes + lastWrite.residualBytes,
         textureBytes: textures.textureBytes,
@@ -158,9 +192,9 @@ async function run(id: number, settings: OptimizeSettings, wantBuffer: boolean):
     // Copied out of the Document's buffer view so the transfer cannot detach
     // memory glTF-Transform still holds.
     const buffer = output.slice().buffer;
-    post({ type: 'result', id, breakdown, buffer }, [buffer]);
+    post({ type: 'result', id, breakdown, notes, buffer }, [buffer]);
   } else {
-    post({ type: 'result', id, breakdown });
+    post({ type: 'result', id, breakdown, notes });
   }
 }
 
