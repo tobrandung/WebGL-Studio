@@ -41,6 +41,7 @@ import { HDRI_PRESETS } from '@/lib/hdri/presets.generated';
 import type { EnvironmentFormat, HdriPreset } from '@/lib/hdri/types';
 import type { EnvironmentConfig } from '@/lib/db';
 import { formatBytes } from '@/lib/utils';
+import { formatSaving } from '@/lib/format';
 
 /** What the dialog hands back once the user commits. */
 export type EnvironmentUploadResult = {
@@ -66,20 +67,6 @@ type EnvironmentUploadDialogProps = {
 };
 
 const ACCEPT = ACCEPTED_ENVIRONMENT_EXTENSIONS.join(',');
-
-/**
- * Saving as a percentage. Kept off 100 % with a decimal, because a 72 MB source
- * down to 30 KB rounds to "−100 %", which reads as "nothing left" rather than
- * as the win it is.
- */
-function formatSaving(resultBytes: number, sourceBytes: number): string {
-  if (!sourceBytes) return '0 %';
-  const saving = (1 - resultBytes / sourceBytes) * 100;
-  // Floored, not rounded, so an extreme saving reports "99,9 %" rather than the
-  // nonsensical-looking "100 %".
-  const rounded = saving > 99 ? (Math.floor(saving * 10) / 10).toFixed(1) : String(Math.round(saving));
-  return `${rounded.replace('.', ',')} %`;
-}
 
 export function EnvironmentUploadDialog({
   open,
@@ -305,6 +292,7 @@ export function EnvironmentUploadDialog({
                     sourceBytes={file.size}
                     resultBytes={resultBytes}
                     resultLabel={activeFormat ? FORMAT_LABEL[activeFormat] : undefined}
+                    subject="die Umgebung"
                   />
                 </div>
 

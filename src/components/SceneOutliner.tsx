@@ -6,6 +6,7 @@ import {
   Pencil,
   Copy,
   Replace,
+  Sparkles,
   Trash2,
   ChevronRight,
   ChevronDown,
@@ -72,6 +73,8 @@ type SceneOutlinerProps = {
   onDuplicate: (id: string) => void;
   /** Swaps a model's file, keeping its name and transform. */
   onReplace: (id: string) => void;
+  /** Compresses a model's file in place, keeping its name and transform. */
+  onOptimize: (id: string) => void;
   onDelete: (id: string) => void;
   onToggleLightVisibility: (id: string) => void;
   onRenameLight: (id: string, name: string) => void;
@@ -100,6 +103,7 @@ export function SceneOutliner({
   onRename,
   onDuplicate,
   onReplace,
+  onOptimize,
   onDelete,
   onToggleLightVisibility,
   onRenameLight,
@@ -303,6 +307,10 @@ export function SceneOutliner({
             <DropdownMenuItem onClick={() => onReplace(model.id)}>
               <Replace className="mr-2 h-3.5 w-3.5" />
               Austauschen
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onOptimize(model.id)}>
+              <Sparkles className="mr-2 h-3.5 w-3.5" />
+              Optimieren…
             </DropdownMenuItem>
             {model.groupId && (
               <DropdownMenuItem

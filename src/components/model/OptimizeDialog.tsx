@@ -1,0 +1,282 @@
+import { useEffect, useState } from 'react';
+import { Loader2, Sparkles } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Notice } from '@/components/ui/notice';
+import { Progress } from '@/components/ui/progress';
+import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { InfoHint } from '@/components/ui/info-hint';
+import { SizeBudgetBar } from '@/components/environment/SizeBudgetBar';
+import { useModelOptimizer } from '@/hooks/useModelOptimizer';
+import { formatSaving } from '@/lib/format';
+import { formatBytes } from '@/lib/utils';
+import type { MaxTextureSize, TextureFormat } from '@/lib/optimize/types';
+
+const MAX_SIZES: MaxTextureSize[] = [512, 1024, 2048, 4096];
+
+type OptimizeDialogProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Name shown in the header; the model's, or the pending file's. */
+  modelName: string;
+  /** Source GLB. Transferred to the worker, so pass a copy you don't reuse. */
+  source: ArrayBuffer | null;
+  onConfirm: (buffer: ArrayBuffer) => void;
+};
+
+/** One before/after line of the byte breakdown. */
+function BreakdownRow({
+  label,
+  before,
+  after,
+  hint,
+}: {
+  label: string;
+  before: number;
+  after?: number;
+  hint?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 text-xs">
+      <span className="flex items-center gap-1 text-muted-foreground">
+        {label}
+        {hint}
+      </span>
+      <span className="font-mono tabular-nums">
+        <span className="text-muted-foreground">{formatBytes(before)}</span>
+        {after !== undefined && (
+          <>
+            <span className="mx-1 text-muted-foreground">→</span>
+            <span>{formatBytes(after)}</span>
+          </>
+        )}
+      </span>
+    </div>
+  );
+}
+
+export function OptimizeDialog({
+  open,
+  onOpenChange,
+  modelName,
+  source,
+  onConfirm,
+}: OptimizeDialogProps) {
+  // Only hand the buffer to the hook while the dialog is open, so closing it
+  // terminates the worker and releases the parsed Document.
+  const [active, setActive] = useState<ArrayBuffer | null>(null);
+  useEffect(() => {
+    setActive(open ? source : null);
+  }, [open, source]);
+
+  const optimizer = useModelOptimizer(active);
+  const { analysis, measured, settings, setSettings, status, error, progress } = optimizer;
+
+  const busy = status === 'opening' || status === 'measuring' || status === 'finishing';
+  const sourceBytes = analysis?.fileSize ?? 0;
+  const resultBytes = measured?.total;
+
+  const handleConfirm = async () => {
+    const buffer = await optimizer.finish();
+    if (buffer) {
+      onConfirm(buffer);
+      onOpenChange(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="min-w-0 overflow-hidden sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Modell optimieren</DialogTitle>
+          <DialogDescription>
+            Komprimiert Texturen und Geometrie von „{modelName}“. Aufräumen (ungenutzte Daten
+            entfernen, Duplikate zusammenlegen) läuft immer mit.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <section className="space-y-3 rounded-lg border p-3">
+            <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+              Texturen
+            </p>
+
+            <div className="flex items-center justify-between gap-3">
+              <Label className="text-xs">Format</Label>
+              <ToggleGroup
+                type="single"
+                size="sm"
+                value={settings.textureFormat}
+                onValueChange={(value) =>
+                  value && setSettings({ textureFormat: value as TextureFormat })
+                }
+              >
+                <ToggleGroupItem value="webp" className="px-3 text-xs">
+                  WebP
+                </ToggleGroupItem>
+                <ToggleGroupItem value="keep" className="px-3 text-xs">
+                  unverändert
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <Label className="flex items-center gap-1 text-xs">
+                Max. Größe
+                <InfoHint label="Maximale Texturgröße">
+                  Die einzige Einstellung, die auch den GPU-Speicher senkt — und zwar quadratisch.
+                  Das Format ändert nur die Dateigröße, im Speicher der Grafikkarte liegt jede
+                  Textur unkomprimiert.
+                </InfoHint>
+              </Label>
+              <ToggleGroup
+                type="single"
+                size="sm"
+                value={String(settings.maxTextureSize)}
+                onValueChange={(value) =>
+                  value && setSettings({ maxTextureSize: Number(value) as MaxTextureSize })
+                }
+              >
+                {MAX_SIZES.map((size) => (
+                  <ToggleGroupItem key={size} value={String(size)} className="px-2.5 text-xs">
+                    {size}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-1 text-xs">
+                  Qualität
+                  <InfoHint label="Textur-Qualität">
+                    Normal-Maps werden von diesem Regler ausgenommen und immer mit hoher Qualität
+                    gespeichert — sie enthalten Richtungsvektoren, keine Farben, und zeigen
+                    Kompressionsfehler als Streifen im Glanzlicht.
+                  </InfoHint>
+                </Label>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {Math.round(settings.textureQuality * 100)} %
+                </span>
+              </div>
+              <Slider
+                min={40}
+                max={100}
+                step={5}
+                value={[Math.round(settings.textureQuality * 100)]}
+                onValueChange={([value]) => setSettings({ textureQuality: value / 100 })}
+                disabled={settings.textureFormat === 'keep'}
+                aria-label="Textur-Qualität"
+              />
+            </div>
+          </section>
+
+          <section className="space-y-2 rounded-lg border p-3">
+            <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+              Geometrie
+            </p>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="optimize-draco" className="flex items-center gap-1 text-xs">
+                Komprimieren (Draco)
+                <InfoHint label="Draco">
+                  Verkleinert die Geometrie typisch um das Vier- bis Achtfache. Die Positionen
+                  werden dabei quantisiert — in der Praxis nicht sichtbar. Der Editor, die Vorschau
+                  und das Widget können Draco bereits laden.
+                </InfoHint>
+              </Label>
+              <Switch
+                id="optimize-draco"
+                checked={settings.draco}
+                onCheckedChange={(value) => setSettings({ draco: value })}
+              />
+            </div>
+          </section>
+
+          {analysis && (
+            <section className="space-y-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-sm">
+                  <span className="text-muted-foreground">{formatBytes(sourceBytes)}</span>
+                  <span className="mx-1.5 text-muted-foreground">→</span>
+                  <span className="font-medium">
+                    {resultBytes !== undefined ? formatBytes(resultBytes) : '–'}
+                  </span>
+                </span>
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {busy && <Loader2 className="h-3 w-3 animate-spin" />}
+                  {resultBytes !== undefined && !busy && `−${formatSaving(resultBytes, sourceBytes)}`}
+                </span>
+              </div>
+
+              <SizeBudgetBar
+                sourceBytes={sourceBytes}
+                resultBytes={resultBytes}
+                resultLabel="Optimiert"
+                subject="das Modell"
+              />
+
+              <div className="space-y-1 pt-1">
+                <BreakdownRow
+                  label="Texturen"
+                  before={analysis.textureBytes}
+                  after={measured?.textureBytes}
+                />
+                <BreakdownRow
+                  label="Geometrie"
+                  before={analysis.geometryBytes}
+                  after={measured?.geometryBytes}
+                />
+                <BreakdownRow
+                  label="GPU-Speicher"
+                  before={analysis.gpuBytes}
+                  after={measured?.gpuBytes}
+                  hint={
+                    <InfoHint label="GPU-Speicher">
+                      Was die Texturen entpackt auf der Grafikkarte belegen. Nur die maximale
+                      Texturgröße senkt diesen Wert — WebP verkleinert ausschließlich die Datei.
+                    </InfoHint>
+                  }
+                />
+              </div>
+            </section>
+          )}
+
+          {progress && (
+            <div className="space-y-1.5">
+              <Progress value={Math.round(progress.progress * 100)} />
+              <p className="text-xs text-muted-foreground" aria-live="polite">
+                {progress.label}
+              </p>
+            </div>
+          )}
+
+          {error && <Notice variant="error">{error}</Notice>}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Abbrechen
+          </Button>
+          <Button disabled={busy || !measured} onClick={handleConfirm}>
+            {status === 'finishing' ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="mr-2 h-3.5 w-3.5" />
+            )}
+            Optimieren
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

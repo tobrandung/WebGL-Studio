@@ -34,10 +34,13 @@ export function SizeBudgetBar({
   sourceBytes,
   resultBytes,
   resultLabel,
+  subject = 'Die Datei',
 }: {
   sourceBytes: number;
   resultBytes?: number;
   resultLabel?: string;
+  /** What the caption talks about, e.g. "Das Modell". Nominative case. */
+  subject?: string;
 }) {
   const shown = resultBytes ?? sourceBytes;
   const zone = budgetZone(shown);
@@ -95,8 +98,8 @@ export function SizeBudgetBar({
         {ZONE_ORDER.slice(0, 3)
           .map((key) => ZONE_LABEL[key])
           .join(' · ')}{' '}
-        — Empfehlung fürs Web: unter 1 MB. Bis 3 MB ist vertretbar, darüber verlängert die Umgebung
-        die Ladezeit deutlich.
+        — Empfehlung fürs Web: unter 1 MB. Bis 3 MB ist vertretbar, darüber verlängert {subject} die
+        Ladezeit deutlich.
       </p>
     </div>
   );

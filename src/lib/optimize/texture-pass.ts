@@ -6,6 +6,11 @@
  * words, "most quality- and compression-related options are ignored". The
  * quality slider would do nothing. `createImageBitmap` + canvas honours it and
  * is hardware-accelerated on top.
+ *
+ * The pass always encodes from a captured copy of the *original* images, never
+ * from whatever is currently on the Document. Running it twice — which is
+ * exactly what a quality slider does — would otherwise compress an already
+ * compressed image, and the damage would accumulate with every drag.
  */
 
 import type { Document, Texture } from '@gltf-transform/core';
@@ -20,8 +25,8 @@ const DECODABLE = ['image/png', 'image/jpeg', 'image/webp'];
 /**
  * iOS Safari silently returns blank pixels above roughly 16.7 Mpx of canvas
  * area rather than throwing, so a 4096² texture sits exactly on the edge.
- * Staying one step below keeps the pass from producing invisible textures on
- * iPads without any error to go on.
+ * Staying below keeps the pass from producing invisible textures on iPads
+ * with no error to go on.
  */
 const MAX_CANVAS_PIXELS = 16_000_000;
 
@@ -64,10 +69,36 @@ export function targetSize(width: number, height: number, max: number): [number,
   return [Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale))];
 }
 
-/** Slots whose contents are direction vectors or packed channels, not colour. */
+/**
+ * Normal maps store direction vectors, not colour. Lossy compression bends
+ * them and the error surfaces as banding in the specular highlight, which
+ * reads as a broken material rather than a soft image — so they keep their own
+ * floor no matter where the slider sits.
+ */
 function qualityForSlots(slots: string[], base: number): number {
   if (slots.includes('normalTexture')) return Math.max(base, NORMAL_MAP_MIN_QUALITY);
   return base;
+}
+
+/** An untouched source image, kept so repeated passes never stack losses. */
+export type TextureOriginal = {
+  image: Uint8Array;
+  mimeType: string;
+  slots: string[];
+  name: string;
+};
+
+/** Snapshot the images as they are now. Call once, after cleaning. */
+export function captureTextureOriginals(document: Document): TextureOriginal[] {
+  return document
+    .getRoot()
+    .listTextures()
+    .map((texture, index) => ({
+      image: texture.getImage() ?? new Uint8Array(),
+      mimeType: texture.getMimeType(),
+      slots: listTextureSlots(texture),
+      name: texture.getName() || texture.getURI() || `Textur ${index + 1}`,
+    }));
 }
 
 export type TexturePassOptions = Pick<
@@ -80,19 +111,17 @@ export type TexturePassOptions = Pick<
 export type TexturePassResult = {
   /** Bytes of every texture in the document after the pass. */
   textureBytes: number;
-  /** Textures that were left untouched, with the reason. */
+  /** Decoded RGBA bytes incl. mipmaps after the pass. */
+  gpuBytes: number;
+  /** Textures left untouched, with the reason. */
   skipped: { name: string; reason: string }[];
 };
 
 async function encodeTexture(
-  texture: Texture,
+  original: TextureOriginal,
   options: TexturePassOptions,
-): Promise<{ image: Uint8Array; mimeType: string } | null> {
-  const source = texture.getImage();
-  const sourceMime = texture.getMimeType();
-  if (!source) return null;
-
-  const blob = new Blob([source as BlobPart], { type: sourceMime });
+): Promise<{ image: Uint8Array; mimeType: string; width: number; height: number } | null> {
+  const blob = new Blob([original.image as BlobPart], { type: original.mimeType });
   // Both flags matter and both default the wrong way for texture data:
   // premultiplication folds alpha into RGB (ruining packed and cut-out maps)
   // and colour-space conversion applies any embedded ICC profile, shifting
@@ -104,80 +133,102 @@ async function encodeTexture(
 
   try {
     const [width, height] = targetSize(bitmap.width, bitmap.height, options.maxTextureSize);
-    const targetMime = options.textureFormat === 'webp' ? 'image/webp' : sourceMime;
-    const unchanged = width === bitmap.width && height === bitmap.height;
-    if (unchanged && targetMime === sourceMime) return null;
+    const targetMime = options.textureFormat === 'webp' ? 'image/webp' : original.mimeType;
+    const sameSize = width === bitmap.width && height === bitmap.height;
+    if (sameSize && targetMime === original.mimeType) return null;
 
     const canvas = createCanvas(width, height);
     const context = canvas.getContext('2d', { colorSpace: 'srgb' }) as
       | OffscreenCanvasRenderingContext2D
       | CanvasRenderingContext2D
       | null;
-    if (!context) throw new Error('texture-pass: no 2d context');
+    if (!context) throw new Error('texture-pass: kein 2D-Kontext');
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
     context.drawImage(bitmap, 0, 0, width, height);
 
-    const quality = qualityForSlots(listTextureSlots(texture), options.textureQuality);
+    const quality = qualityForSlots(original.slots, options.textureQuality);
     const encoded = await canvasToBlob(canvas, targetMime, quality);
     const image = new Uint8Array(await encoded.arrayBuffer());
 
     // A flat or already-small image can come out bigger than it went in.
     // Growing a file during "optimise" is never the right answer.
-    if (image.byteLength >= source.byteLength && targetMime === sourceMime) return null;
+    if (image.byteLength >= original.image.byteLength && targetMime === original.mimeType) {
+      return null;
+    }
 
-    return { image, mimeType: targetMime };
+    return { image, mimeType: targetMime, width, height };
   } finally {
     bitmap.close();
   }
 }
 
+/** Decoded RGBA bytes a texture occupies on the GPU, mipmaps included. */
+function gpuBytesFor(width: number, height: number): number {
+  return Math.round(width * height * 4 * (4 / 3));
+}
+
 /**
- * Rewrites every decodable texture in place. `texture.setImage()` is
- * idempotent, so this can run repeatedly on the same Document — which is what
- * makes the live quality slider affordable.
+ * Rewrites every decodable texture in place, always starting from `originals`.
+ * Safe to call repeatedly on the same Document with different settings.
  */
 export async function runTexturePass(
   document: Document,
+  originals: TextureOriginal[],
   options: TexturePassOptions,
 ): Promise<TexturePassResult> {
   const textures = document.getRoot().listTextures();
   const skipped: TexturePassResult['skipped'] = [];
-  let done = 0;
+  let gpuBytes = 0;
 
-  for (const texture of textures) {
-    const name = texture.getName() || texture.getURI() || `Textur ${done + 1}`;
-    const mimeType = texture.getMimeType();
+  for (const [index, texture] of textures.entries()) {
+    const original = originals[index];
+    if (!original) continue;
 
-    if (!DECODABLE.includes(mimeType)) {
-      skipped.push({ name, reason: `Format ${mimeType} kann der Browser nicht decodieren` });
+    if (!DECODABLE.includes(original.mimeType)) {
+      skipped.push({
+        name: original.name,
+        reason: `${original.mimeType} kann der Browser nicht decodieren`,
+      });
+      restore(texture, original);
     } else {
       try {
-        const encoded = await encodeTexture(texture, options);
+        const encoded = await encodeTexture(original, options);
         if (encoded) {
-          texture.setImage(encoded.image);
-          if (encoded.mimeType !== mimeType) {
-            const uri = texture.getURI();
-            texture.setMimeType(encoded.mimeType);
-            if (uri) texture.setURI(uri.replace(/\.\w+$/, '.webp'));
+          texture.setImage(encoded.image).setMimeType(encoded.mimeType);
+          const uri = texture.getURI();
+          if (uri && encoded.mimeType === 'image/webp') {
+            texture.setURI(uri.replace(/\.\w+$/, '.webp'));
           }
+          gpuBytes += gpuBytesFor(encoded.width, encoded.height);
+        } else {
+          restore(texture, original);
+          gpuBytes += gpuBytesFromImage(original);
         }
       } catch (error) {
-        skipped.push({ name, reason: error instanceof Error ? error.message : 'Encoding fehlgeschlagen' });
+        skipped.push({
+          name: original.name,
+          reason: error instanceof Error ? error.message : 'Encoding fehlgeschlagen',
+        });
+        restore(texture, original);
+        gpuBytes += gpuBytesFromImage(original);
       }
     }
 
-    done += 1;
-    options.onProgress?.(done, textures.length);
+    options.onProgress?.(index + 1, textures.length);
   }
 
-  // EXT_texture_webp goes into extensionsRequired, so it must only be declared
+  // EXT_texture_webp goes into extensionsRequired, so it may only be declared
   // when a WebP texture actually survived the pass.
-  const webpExtension = document.createExtension(EXTTextureWebP);
-  if (textures.some((texture) => texture.getMimeType() === 'image/webp')) {
-    webpExtension.setRequired(true);
-  } else {
-    webpExtension.dispose();
+  const existing = document
+    .getRoot()
+    .listExtensionsUsed()
+    .find((extension) => extension.extensionName === EXTTextureWebP.EXTENSION_NAME);
+  const needsWebP = textures.some((texture) => texture.getMimeType() === 'image/webp');
+  if (needsWebP && !existing) {
+    document.createExtension(EXTTextureWebP).setRequired(true);
+  } else if (!needsWebP && existing) {
+    existing.dispose();
   }
 
   const textureBytes = textures.reduce(
@@ -185,5 +236,61 @@ export async function runTexturePass(
     0,
   );
 
-  return { textureBytes, skipped };
+  return { textureBytes, gpuBytes, skipped };
+}
+
+/** Puts a texture back to its captured source, undoing an earlier pass. */
+function restore(texture: Texture, original: TextureOriginal): void {
+  if (texture.getMimeType() !== original.mimeType || texture.getImage() !== original.image) {
+    texture.setImage(original.image).setMimeType(original.mimeType);
+  }
+}
+
+/**
+ * GPU cost of an original we did not decode this run. Dimensions come from the
+ * container header rather than a full decode, which would be wasteful here.
+ */
+function gpuBytesFromImage(original: TextureOriginal): number {
+  const size = readImageSize(original.image, original.mimeType);
+  return size ? gpuBytesFor(size[0], size[1]) : 0;
+}
+
+/** Minimal PNG/JPEG/WebP header parse — dimensions only. */
+export function readImageSize(bytes: Uint8Array, mimeType: string): [number, number] | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  try {
+    if (mimeType === 'image/png') {
+      return [view.getUint32(16, false), view.getUint32(20, false)];
+    }
+    if (mimeType === 'image/jpeg') {
+      let offset = 2;
+      while (offset < bytes.byteLength) {
+        if (view.getUint8(offset) !== 0xff) break;
+        const marker = view.getUint8(offset + 1);
+        const length = view.getUint16(offset + 2, false);
+        // SOF0-SOF15, excluding the DHT/DAC/RST markers in that range.
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return [view.getUint16(offset + 7, false), view.getUint16(offset + 5, false)];
+        }
+        offset += 2 + length;
+      }
+      return null;
+    }
+    if (mimeType === 'image/webp') {
+      // VP8X carries the canvas size as two 24-bit values, minus one.
+      const chunk = String.fromCharCode(...bytes.subarray(12, 16));
+      if (chunk === 'VP8X') {
+        const w = (view.getUint8(24) | (view.getUint8(25) << 8) | (view.getUint8(26) << 16)) + 1;
+        const h = (view.getUint8(27) | (view.getUint8(28) << 8) | (view.getUint8(29) << 16)) + 1;
+        return [w, h];
+      }
+      if (chunk === 'VP8 ') {
+        return [view.getUint16(26, true) & 0x3fff, view.getUint16(28, true) & 0x3fff];
+      }
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }

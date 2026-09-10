@@ -33,6 +33,7 @@ import { pickableKeyframeMarkers, findKeyframeMarker } from '@/three/keyframe-ma
 import { createDefaultLights, createLightEntry, loadEquirectTexture } from '@/three/lighting';
 import { EditorToolbar } from '@/components/EditorToolbar';
 import { ModelUploadDialog } from '@/components/ModelUploadDialog';
+import { OptimizeDialog } from '@/components/model/OptimizeDialog';
 import {
   EnvironmentUploadDialog,
   type EnvironmentUploadResult,
@@ -134,6 +135,8 @@ export function EditorPage() {
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   /** Model whose file the upload dialog is about to swap out. */
   const [replaceModelId, setReplaceModelId] = useState<string | null>(null);
+  const [optimizeModelId, setOptimizeModelId] = useState<string | null>(null);
+  const [optimizeSource, setOptimizeSource] = useState<ArrayBuffer | null>(null);
   const [showEnvDialog, setShowEnvDialog] = useState(false);
   const [showKeyframeEditor, setShowKeyframeEditor] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
@@ -915,6 +918,53 @@ export function EditorPage() {
   );
 
   /**
+   * Opens the optimize dialog for a model, handing it a copy of the stored
+   * GLB. A copy, because the worker takes ownership of whatever it is given —
+   * transferring the cached blob would detach the buffer IndexedDB handed us.
+   */
+  const handleOpenOptimize = useCallback(async (modelId: string) => {
+    const db = await getDB();
+    const stored = await db.get('blobs', modelId);
+    if (!stored) return;
+    setOptimizeSource(stored.data.slice(0));
+    setOptimizeModelId(modelId);
+  }, []);
+
+  /**
+   * Writes the optimized GLB back through the same path as a file swap, so the
+   * transform survives and undo restores the original byte for byte.
+   */
+  const handleOptimizeConfirm = useCallback(
+    async (buffer: ArrayBuffer) => {
+      const modelId = optimizeModelId;
+      setOptimizeModelId(null);
+      setOptimizeSource(null);
+      if (!modelId) return;
+
+      const entry = modelsRef.current.find((m) => m.id === modelId);
+      const db = await getDB();
+      const current = await db.get('blobs', modelId);
+      if (!entry || !current) return;
+
+      const previousId = generateId();
+      const nextId = generateId();
+      await db.put('blobs', { id: previousId, data: current.data });
+      await db.put('blobs', { id: nextId, data: buffer });
+
+      const previous = { blobId: previousId, fileName: entry.fileName, fileSize: entry.fileSize };
+      const next = { blobId: nextId, fileName: entry.fileName, fileSize: buffer.byteLength };
+
+      runCommand({
+        type: 'model:optimize',
+        label: `"${entry.name}" optimieren`,
+        execute: () => void applyModelSource(modelId, next),
+        undo: () => void applyModelSource(modelId, previous),
+      });
+    },
+    [optimizeModelId, applyModelSource, runCommand],
+  );
+
+  /**
    * Copies a model, offset so the duplicate is visible. The transform goes into
    * the record rather than the live group: the viewport loads models
    * asynchronously, so the group does not exist yet at this point.
@@ -1661,6 +1711,7 @@ export function EditorPage() {
         onRename={handleOutlinerRename}
         onDuplicate={handleOutlinerDuplicate}
         onReplace={setReplaceModelId}
+        onOptimize={(id) => void handleOpenOptimize(id)}
         onDelete={deleteModelWithHistory}
         onToggleLightVisibility={handleToggleLightVisibility}
         onRenameLight={handleRenameLight}
@@ -1738,6 +1789,18 @@ export function EditorPage() {
         }}
         onUpload={handleReplaceModel}
         replacing={models.find((m) => m.id === replaceModelId)?.name ?? null}
+      />
+      <OptimizeDialog
+        open={optimizeModelId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOptimizeModelId(null);
+            setOptimizeSource(null);
+          }
+        }}
+        modelName={models.find((m) => m.id === optimizeModelId)?.name ?? ''}
+        source={optimizeSource}
+        onConfirm={(buffer) => void handleOptimizeConfirm(buffer)}
       />
       <EnvironmentUploadDialog
         open={showEnvDialog}
