@@ -5,7 +5,7 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Camera, Copy, Crosshair, ImageUp, Trash2 } from 'lucide-react';
+import { Camera, Copy, Crosshair, ImageUp, Link2, Link2Off, Trash2 } from 'lucide-react';
 import { InfoHint } from '@/components/ui/info-hint';
 import { cn, formatBytes } from '@/lib/utils';
 import { environmentFormat, type LightEntry, type EnvironmentConfig } from '@/lib/db';
@@ -36,6 +36,9 @@ type PropertiesPanelProps = {
   model: ModelSelection | null;
   /** Decides which of the model's transform values the panel exposes. */
   transformMode: TransformMode;
+  /** Whether editing one scale axis carries the factor to the other two. */
+  scaleLocked: boolean;
+  onScaleLockChange: (locked: boolean) => void;
   light: LightEntry | null;
   environment: EnvironmentConfig | null;
   /** Non-null when the world/background entry is selected. */
@@ -73,6 +76,8 @@ function ValueLabel({ label, value }: { label: string; value: string }) {
 export function PropertiesPanel({
   model,
   transformMode,
+  scaleLocked,
+  onScaleLockChange,
   light,
   environment,
   background,
@@ -102,6 +107,8 @@ export function PropertiesPanel({
           <ModelProperties
             model={model}
             transformMode={transformMode}
+            scaleLocked={scaleLocked}
+            onScaleLockChange={onScaleLockChange}
             onUpdate={onUpdateModelTransform}
           />
         )}
@@ -508,40 +515,32 @@ function formatAxis(value: number): string {
 }
 
 /**
- * Three numeric axis fields committing on blur/Enter — the same draft pattern
- * the hex field uses, so a half-typed value never reaches the scene.
+ * Three numeric axis fields committing on blur/Enter, so a half-typed value
+ * never reaches the scene.
+ *
+ * Only the axis being typed in holds a draft; the other two render straight
+ * from `value`. Keeping drafts for all three meant an edit that also moved its
+ * siblings — proportional scaling, or an undo — left those fields showing the
+ * old number while the scene had already changed.
  */
 function Vec3Field({
   label,
   value,
   onChange,
+  action,
 }: {
   label: string;
   value: [number, number, number];
   onChange: (next: [number, number, number]) => void;
+  /** Optional control shown next to the label, e.g. the proportional lock. */
+  action?: React.ReactNode;
 }) {
-  const [drafts, setDrafts] = useState<string[]>(() => value.map(formatAxis));
-  const [focusedAxis, setFocusedAxis] = useState<number | null>(null);
-
-  // Mirror external changes (gizmo drag) into the fields without clobbering
-  // the axis the user is typing in. Returning `prev` when nothing actually
-  // differs keeps callers that pass a computed array (degrees converted from
-  // radians, i.e. a fresh array per render) from looping forever.
-  useEffect(() => {
-    setDrafts((prev) => {
-      const next = value.map((v, i) => (i === focusedAxis ? prev[i] : formatAxis(v)));
-      return next.every((draft, i) => draft === prev[i]) ? prev : next;
-    });
-  }, [value, focusedAxis]);
+  const [draft, setDraft] = useState<{ axis: number; text: string } | null>(null);
 
   const commit = (index: number, raw: string) => {
+    setDraft(null);
     const parsed = Number.parseFloat(raw.replace(',', '.'));
-    if (!Number.isFinite(parsed)) {
-      setDrafts((prev) => prev.map((d, i) => (i === index ? formatAxis(value[i]) : d)));
-      return;
-    }
-    setDrafts((prev) => prev.map((d, i) => (i === index ? formatAxis(parsed) : d)));
-    if (parsed === value[index]) return;
+    if (!Number.isFinite(parsed) || parsed === value[index]) return;
     const next: [number, number, number] = [...value];
     next[index] = parsed;
     onChange(next);
@@ -549,7 +548,10 @@ function Vec3Field({
 
   return (
     <Row>
-      <Label className="text-xs">{label}</Label>
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-xs">{label}</Label>
+        {action}
+      </div>
       <div className="grid grid-cols-3 gap-1">
         {AXES.map((axis, index) => (
           <div key={axis} className="relative">
@@ -557,15 +559,9 @@ function Vec3Field({
               {axis}
             </span>
             <Input
-              value={drafts[index] ?? ''}
-              onChange={(e) =>
-                setDrafts((prev) => prev.map((d, i) => (i === index ? e.target.value : d)))
-              }
-              onFocus={() => setFocusedAxis(index)}
-              onBlur={(e) => {
-                setFocusedAxis(null);
-                commit(index, e.target.value);
-              }}
+              value={draft?.axis === index ? draft.text : formatAxis(value[index])}
+              onChange={(e) => setDraft({ axis: index, text: e.target.value })}
+              onBlur={(e) => commit(index, e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') e.currentTarget.blur();
               }}
@@ -595,17 +591,49 @@ const TRANSFORM_FIELD: Record<TransformMode, { key: ModelTransformKey; label: st
 function ModelProperties({
   model,
   transformMode,
+  scaleLocked,
+  onScaleLockChange,
   onUpdate,
 }: {
   model: ModelSelection;
   transformMode: TransformMode;
+  scaleLocked: boolean;
+  onScaleLockChange: (locked: boolean) => void;
   onUpdate: (key: ModelTransformKey, value: [number, number, number]) => void;
 }) {
   const { key, label } = TRANSFORM_FIELD[transformMode];
   const isRotation = key === 'rotation';
+  const isScale = key === 'scale';
   const value = isRotation
     ? (model.rotation.map((r) => r * RAD_TO_DEG) as [number, number, number])
     : model[key];
+
+  const commit = (next: [number, number, number]) => {
+    if (isRotation) {
+      onUpdate('rotation', next.map((d) => d * DEG_TO_RAD) as [number, number, number]);
+      return;
+    }
+
+    if (isScale && scaleLocked) {
+      const axis = next.findIndex((v, i) => v !== value[i]);
+      if (axis >= 0) {
+        const from = value[axis];
+        const to = next[axis];
+        // Scale the other axes by the same factor so a non-uniform model keeps
+        // its proportions. A zero axis has no ratio to carry over, so the typed
+        // value is simply copied across.
+        onUpdate(
+          'scale',
+          from === 0
+            ? [to, to, to]
+            : (value.map((v) => v * (to / from)) as [number, number, number]),
+        );
+        return;
+      }
+    }
+
+    onUpdate(key, next);
+  };
 
   return (
     <>
@@ -616,17 +644,34 @@ function ModelProperties({
       <Vec3Field
         label={label}
         value={value}
-        onChange={(next) =>
-          onUpdate(
-            key,
-            isRotation ? (next.map((d) => d * DEG_TO_RAD) as [number, number, number]) : next,
-          )
+        onChange={commit}
+        action={
+          isScale ? (
+            <button
+              type="button"
+              onClick={() => onScaleLockChange(!scaleLocked)}
+              aria-pressed={scaleLocked}
+              aria-label={
+                scaleLocked ? 'Proportionale Skalierung ausschalten' : 'Proportional skalieren'
+              }
+              className={cn(
+                'flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors',
+                scaleLocked
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {scaleLocked ? <Link2 className="h-3 w-3" /> : <Link2Off className="h-3 w-3" />}
+              Proportional
+            </button>
+          ) : undefined
         }
       />
 
       <p className="text-[11px] text-muted-foreground">
-        Zeigt die Werte des aktiven Werkzeugs — mit G (Verschieben), R (Rotieren) und S (Skalieren)
-        umschalten.
+        {isScale && scaleLocked
+          ? 'Ein Wert genügt — die anderen Achsen folgen im gleichen Verhältnis.'
+          : 'Zeigt die Werte des aktiven Werkzeugs — mit G (Verschieben), R (Rotieren) und S (Skalieren) umschalten.'}
       </p>
     </>
   );

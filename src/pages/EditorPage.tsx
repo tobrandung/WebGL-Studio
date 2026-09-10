@@ -141,6 +141,9 @@ export function EditorPage() {
   // the numeric fields track gizmo drags. Model transforms live in the scene
   // graph (not in React state), hence the mirror rather than a lookup.
   const [modelTransform, setModelTransform] = useState<Transform | null>(null);
+  // Kept here rather than in the panel so the choice survives reselecting a
+  // model (the panel unmounts whenever the selection clears).
+  const [scaleLocked, setScaleLocked] = useState(true);
   const [keyframes, setKeyframes] = useState<Keyframe[]>([]);
   const [isLoop, setIsLoop] = useState(true);
   const [cameraSpeed, setCameraSpeed] = useState(1);
@@ -1579,6 +1582,8 @@ export function EditorPage() {
         <PropertiesPanel
           model={selectedModel}
           transformMode={transformModeState}
+          scaleLocked={scaleLocked}
+          onScaleLockChange={setScaleLocked}
           light={selectedKind === 'light' ? lights.find((l) => l.id === selectedId) ?? null : null}
           environment={selectedKind === 'environment' ? environment : null}
           background={selectedKind === 'world' ? background : null}
