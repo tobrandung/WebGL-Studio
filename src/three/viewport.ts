@@ -48,6 +48,51 @@ export type TransformMode = 'translate' | 'rotate' | 'scale';
 
 const SUPPORTED_EXTENSIONS = ['.glb', '.gltf', '.fbx', '.obj', '.stl', '.dae', '.3ds'];
 
+const MATERIAL_TEXTURE_KEYS = [
+  'map',
+  'normalMap',
+  'roughnessMap',
+  'metalnessMap',
+  'aoMap',
+  'emissiveMap',
+  'displacementMap',
+  'alphaMap',
+  'envMap',
+  'lightMap',
+  'bumpMap',
+  'specularMap',
+  'clearcoatMap',
+  'clearcoatNormalMap',
+  'clearcoatRoughnessMap',
+  'transmissionMap',
+  'thicknessMap',
+  'sheenColorMap',
+  'sheenRoughnessMap',
+] as const;
+
+function disposeMaterial(material: THREE.Material) {
+  const record = material as unknown as Record<string, unknown>;
+  for (const key of MATERIAL_TEXTURE_KEYS) {
+    const texture = record[key];
+    if (texture instanceof THREE.Texture) texture.dispose();
+  }
+  material.dispose();
+}
+
+/** Traverses a loaded model and disposes every geometry/material/texture it owns. */
+function disposeObject3D(object: THREE.Object3D) {
+  object.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry?.dispose();
+    if (Array.isArray(mesh.material)) {
+      mesh.material.forEach(disposeMaterial);
+    } else if (mesh.material) {
+      disposeMaterial(mesh.material);
+    }
+  });
+}
+
 export function isSupportedModelFile(filename: string): boolean {
   const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
   return SUPPORTED_EXTENSIONS.includes(ext);
@@ -130,6 +175,9 @@ export function createViewport(
     dispose() {
       disposed = true;
       disposeKeyframeMarkers(scene, keyframeMarkers);
+      for (const model of models.values()) disposeObject3D(model);
+      models.clear();
+      syncLights(scene, [], lights, { helpers: true });
       cancelAnimationFrame(animationId);
       resizeObserver.disconnect();
       transformControls.dispose();
@@ -206,9 +254,17 @@ export async function loadModelFromBuffer(
       const dracoLoader = new DRACOLoader();
       dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
       loader.setDRACOLoader(dracoLoader);
+      // Lazily imported: only needed for GLBs authored with KTX2/Basis-compressed
+      // textures, so users who never touch that pay nothing for it.
+      const { KTX2Loader } = await import('three/addons/loaders/KTX2Loader.js');
+      const ktx2Loader = new KTX2Loader();
+      ktx2Loader.setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/libs/basis/');
+      ktx2Loader.detectSupport(ctx.renderer);
+      loader.setKTX2Loader(ktx2Loader);
       const gltf = await loader.parseAsync(buffer, '');
       object = gltf.scene;
       dracoLoader.dispose();
+      ktx2Loader.dispose();
       break;
     }
     case '.fbx': {
@@ -315,6 +371,7 @@ export function removeModel(ctx: ViewportContext, id: string) {
   if (model) {
     ctx.transformControls.detach();
     ctx.scene.remove(model);
+    disposeObject3D(model);
     ctx.models.delete(id);
   }
 }

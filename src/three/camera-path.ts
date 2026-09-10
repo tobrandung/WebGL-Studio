@@ -69,8 +69,12 @@ export function getCameraAtProgress(
   t: number,
 ): { position: THREE.Vector3; lookAt: THREE.Vector3 } {
   const clampedT = Math.max(0, Math.min(1, t));
+  // getPointAt (not getPoint) walks the curve by arc length rather than by
+  // the raw Catmull-Rom parameter, so unevenly spaced keyframes still feel
+  // like a constant-speed camera move instead of speeding up/slowing down
+  // between closer/farther-apart points.
   return {
-    position: positionSpline.getPoint(clampedT),
-    lookAt: lookAtSpline.getPoint(clampedT),
+    position: positionSpline.getPointAt(clampedT),
+    lookAt: lookAtSpline.getPointAt(clampedT),
   };
 }

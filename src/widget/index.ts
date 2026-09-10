@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import {
   syncLights,
   applyEnvironment,
@@ -147,26 +148,42 @@ function init(selector: string, config: WidgetConfig) {
   const draco = new DRACOLoader();
   draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
   loader.setDRACOLoader(draco);
+  const ktx2 = new KTX2Loader();
+  ktx2.setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/libs/basis/');
+  ktx2.detectSupport(renderer);
+  loader.setKTX2Loader(ktx2);
 
   const modelList: ModelConfig[] = config.models ?? (config.modelUrl ? [{ url: config.modelUrl }] : []);
 
-  modelList.forEach((m) => {
-    loader.load(
-      m.url,
-      (gltf) => {
-        const wrapper = new THREE.Group();
-        wrapper.add(gltf.scene);
-        const box = new THREE.Box3().setFromObject(wrapper);
-        const center = box.getCenter(new THREE.Vector3());
-        gltf.scene.position.sub(center);
-        if (m.position) wrapper.position.set(...m.position);
-        if (m.rotation) wrapper.rotation.set(...m.rotation);
-        if (m.scale) wrapper.scale.set(...m.scale);
-        scene.add(wrapper);
-      },
-      undefined,
-      (err) => console.error('[Web3DWidget] Modell konnte nicht geladen werden:', m.url, err),
-    );
+  Promise.allSettled(
+    modelList.map(
+      (m) =>
+        new Promise<void>((resolve) => {
+          loader.load(
+            m.url,
+            (gltf) => {
+              const wrapper = new THREE.Group();
+              wrapper.add(gltf.scene);
+              const box = new THREE.Box3().setFromObject(wrapper);
+              const center = box.getCenter(new THREE.Vector3());
+              gltf.scene.position.sub(center);
+              if (m.position) wrapper.position.set(...m.position);
+              if (m.rotation) wrapper.rotation.set(...m.rotation);
+              if (m.scale) wrapper.scale.set(...m.scale);
+              scene.add(wrapper);
+              resolve();
+            },
+            undefined,
+            (err) => {
+              console.error('[Web3DWidget] Modell konnte nicht geladen werden:', m.url, err);
+              resolve();
+            },
+          );
+        }),
+    ),
+  ).then(() => {
+    draco.dispose();
+    ktx2.dispose();
   });
 
   const { positionSpline, lookAtSpline } = buildSplines(config.keyframes, config.isLoop);
@@ -200,8 +217,10 @@ function init(selector: string, config: WidgetConfig) {
 
   function applyCamera(t: number) {
     if (!positionSpline || !lookAtSpline) return;
-    const pos = positionSpline.getPoint(t);
-    const look = lookAtSpline.getPoint(t);
+    // getPointAt: arc-length parametrization, so scroll/time progress maps to a
+    // constant-speed camera move regardless of how unevenly keyframes are spaced.
+    const pos = positionSpline.getPointAt(t);
+    const look = lookAtSpline.getPointAt(t);
     camera.position.copy(pos);
     camera.lookAt(look);
   }

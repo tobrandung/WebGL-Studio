@@ -105,22 +105,24 @@ export function PreviewPage() {
       dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
       gltfLoader.setDRACOLoader(dracoLoader);
 
-      for (const model of models) {
-        const blob = await db.get('blobs', model.id);
-        if (!blob) continue;
-        try {
-          const gltf = await gltfLoader.parseAsync(blob.data, '');
-          const wrapper = new THREE.Group();
-          wrapper.add(gltf.scene);
-          const box = new THREE.Box3().setFromObject(wrapper);
-          const center = box.getCenter(new THREE.Vector3());
-          gltf.scene.position.sub(center);
-          wrapper.position.set(...model.position);
-          wrapper.rotation.set(...model.rotation);
-          wrapper.scale.set(...model.scale);
-          scene.add(wrapper);
-        } catch { /* skip unsupported formats in preview */ }
-      }
+      await Promise.all(
+        models.map(async (model) => {
+          const blob = await db.get('blobs', model.id);
+          if (!blob) return;
+          try {
+            const gltf = await gltfLoader.parseAsync(blob.data, '');
+            const wrapper = new THREE.Group();
+            wrapper.add(gltf.scene);
+            const box = new THREE.Box3().setFromObject(wrapper);
+            const center = box.getCenter(new THREE.Vector3());
+            gltf.scene.position.sub(center);
+            wrapper.position.set(...model.position);
+            wrapper.rotation.set(...model.rotation);
+            wrapper.scale.set(...model.scale);
+            scene.add(wrapper);
+          } catch { /* skip unsupported formats in preview */ }
+        }),
+      );
       dracoLoader.dispose();
     })();
 
