@@ -137,6 +137,8 @@ export function EditorPage() {
   const [replaceModelId, setReplaceModelId] = useState<string | null>(null);
   const [optimizeModelId, setOptimizeModelId] = useState<string | null>(null);
   const [optimizeSource, setOptimizeSource] = useState<ArrayBuffer | null>(null);
+  /** Set while a freshly picked file is being optimized before it is stored. */
+  const [optimizeFileName, setOptimizeFileName] = useState<string | null>(null);
   const [showEnvDialog, setShowEnvDialog] = useState(false);
   const [showKeyframeEditor, setShowKeyframeEditor] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
@@ -931,14 +933,33 @@ export function EditorPage() {
   }, []);
 
   /**
-   * Writes the optimized GLB back through the same path as a file swap, so the
-   * transform survives and undo restores the original byte for byte.
+   * Optimizing a file on the way in, before it is ever stored. The upload
+   * dialog cannot host this itself — its submit is fire-and-forget — so it
+   * hands the file over and the optimize dialog finishes the import.
+   */
+  const handleOptimizeUpload = useCallback(async (file: File) => {
+    setOptimizeFileName(file.name);
+    setOptimizeSource(await file.arrayBuffer());
+  }, []);
+
+  /**
+   * Writes the optimized GLB back. For a model already in the project this
+   * goes through the same path as a file swap, so the transform survives and
+   * undo restores the original byte for byte. For a fresh import it becomes
+   * the file the model is created from.
    */
   const handleOptimizeConfirm = useCallback(
     async (buffer: ArrayBuffer) => {
       const modelId = optimizeModelId;
+      const importName = optimizeFileName;
       setOptimizeModelId(null);
       setOptimizeSource(null);
+      setOptimizeFileName(null);
+
+      if (importName) {
+        await handleUpload(new File([buffer], importName, { type: 'model/gltf-binary' }));
+        return;
+      }
       if (!modelId) return;
 
       const entry = modelsRef.current.find((m) => m.id === modelId);
@@ -961,7 +982,7 @@ export function EditorPage() {
         undo: () => void applyModelSource(modelId, previous),
       });
     },
-    [optimizeModelId, applyModelSource, runCommand],
+    [optimizeModelId, optimizeFileName, handleUpload, applyModelSource, runCommand],
   );
 
   /**
@@ -1781,7 +1802,12 @@ export function EditorPage() {
           onImportPath={handleImportPath}
         />
       )}
-      <ModelUploadDialog open={showUploadDialog} onOpenChange={setShowUploadDialog} onUpload={handleUpload} />
+      <ModelUploadDialog
+        open={showUploadDialog}
+        onOpenChange={setShowUploadDialog}
+        onUpload={handleUpload}
+        onOptimize={(file) => void handleOptimizeUpload(file)}
+      />
       <ModelUploadDialog
         open={replaceModelId !== null}
         onOpenChange={(open) => {
@@ -1791,14 +1817,18 @@ export function EditorPage() {
         replacing={models.find((m) => m.id === replaceModelId)?.name ?? null}
       />
       <OptimizeDialog
-        open={optimizeModelId !== null}
+        open={optimizeSource !== null}
         onOpenChange={(open) => {
           if (!open) {
             setOptimizeModelId(null);
             setOptimizeSource(null);
+            setOptimizeFileName(null);
           }
         }}
-        modelName={models.find((m) => m.id === optimizeModelId)?.name ?? ''}
+        modelName={
+          optimizeFileName ?? models.find((m) => m.id === optimizeModelId)?.name ?? ''
+        }
+        importing={optimizeFileName !== null}
         source={optimizeSource}
         onConfirm={(buffer) => void handleOptimizeConfirm(buffer)}
       />

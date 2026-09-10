@@ -34,6 +34,8 @@ type OptimizeDialogProps = {
   onOpenChange: (open: boolean) => void;
   /** Name shown in the header; the model's, or the pending file's. */
   modelName: string;
+  /** True when this is a file on its way in rather than a model already in the scene. */
+  importing?: boolean;
   /** Source GLB. Transferred to the worker, so pass a copy you don't reuse. */
   source: ArrayBuffer | null;
   onConfirm: (buffer: ArrayBuffer) => void;
@@ -80,6 +82,7 @@ export function OptimizeDialog({
   open,
   onOpenChange,
   modelName,
+  importing = false,
   source,
   onConfirm,
 }: OptimizeDialogProps) {
@@ -124,10 +127,11 @@ export function OptimizeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="min-w-0 overflow-hidden sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Modell optimieren</DialogTitle>
+          <DialogTitle>{importing ? 'Beim Import optimieren' : 'Modell optimieren'}</DialogTitle>
           <DialogDescription>
-            Komprimiert Texturen und Geometrie von „{modelName}“. Aufräumen (ungenutzte Daten
-            entfernen, Duplikate zusammenlegen) läuft immer mit.
+            Komprimiert Texturen und Geometrie von „{modelName}“
+            {importing ? ' und fügt das Ergebnis der Szene hinzu' : ''}. Aufräumen (ungenutzte
+            Daten entfernen, Duplikate zusammenlegen) läuft immer mit.
           </DialogDescription>
         </DialogHeader>
 
@@ -321,7 +325,7 @@ export function OptimizeDialog({
             ) : (
               <Sparkles className="mr-2 h-3.5 w-3.5" />
             )}
-            Optimieren
+            {importing ? 'Optimieren & hinzufügen' : 'Optimieren'}
           </Button>
         </DialogFooter>
       </DialogContent>

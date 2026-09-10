@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { Upload, FileBox, Info } from 'lucide-react';
+import { Upload, FileBox, Info, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { isSupportedModelFile, IMPORT_ACCEPT } from '@/three/viewport';
+import { formatBytes } from '@/lib/utils';
 
 type ModelUploadDialogProps = {
   open: boolean;
@@ -22,15 +23,28 @@ type ModelUploadDialogProps = {
    * to say so, since replacing keeps the transform and drops the old geometry.
    */
   replacing?: string | null;
+  /**
+   * Hands the chosen file to the optimizer instead of storing it as is. When
+   * absent, the optimize route is not offered.
+   */
+  onOptimize?: (file: File) => void;
 };
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+/**
+ * Two ceilings, because the files that most need compressing are exactly the
+ * ones a single limit would turn away: anything up to `MAX_DIRECT_BYTES` can
+ * be stored as it is, up to `MAX_SOURCE_BYTES` only through the optimizer,
+ * and beyond that not at all — a browser cannot hold it twice.
+ */
+const MAX_DIRECT_BYTES = 100 * 1024 * 1024;
+const MAX_SOURCE_BYTES = 250 * 1024 * 1024;
 
 export function ModelUploadDialog({
   open,
   onOpenChange,
   onUpload,
   replacing,
+  onOptimize,
 }: ModelUploadDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState('');
@@ -43,8 +57,8 @@ export function ModelUploadDialog({
       setError('Nicht unterstütztes Format. Erlaubt ist nur .glb.');
       return;
     }
-    if (f.size > MAX_FILE_SIZE) {
-      setError('Datei zu groß. Maximale Größe: 100 MB.');
+    if (f.size > MAX_SOURCE_BYTES) {
+      setError(`Datei zu groß. Maximal ${formatBytes(MAX_SOURCE_BYTES)} zum Optimieren.`);
       return;
     }
     setFile(f);
@@ -60,9 +74,18 @@ export function ModelUploadDialog({
     [handleFile],
   );
 
+  const tooLargeToStore = !!file && file.size > MAX_DIRECT_BYTES;
+
   const handleSubmit = () => {
-    if (!file) return;
+    if (!file || tooLargeToStore) return;
     onUpload(file);
+    setFile(null);
+    onOpenChange(false);
+  };
+
+  const handleOptimize = () => {
+    if (!file || !onOptimize) return;
+    onOptimize(file);
     setFile(null);
     onOpenChange(false);
   };
@@ -128,9 +151,7 @@ export function ModelUploadDialog({
               <p className="truncate text-sm font-medium" title={file.name}>
                 {file.name}
               </p>
-              <p className="text-xs text-muted-foreground">
-                {(file.size / (1024 * 1024)).toFixed(2)} MB
-              </p>
+              <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
             </div>
             <Button variant="ghost" size="sm" className="shrink-0" onClick={reset}>
               Ändern
@@ -152,13 +173,26 @@ export function ModelUploadDialog({
           </div>
         </div>
 
+        {tooLargeToStore && (
+          <p className="text-sm text-orange-400">
+            {formatBytes(file.size)} ist zu groß, um unverändert gespeichert zu werden (Grenze{' '}
+            {formatBytes(MAX_DIRECT_BYTES)}). Über „Optimieren“ geht die Datei trotzdem.
+          </p>
+        )}
+
         {error && <p className="text-sm text-red-400">{error}</p>}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Abbrechen
           </Button>
-          <Button disabled={!file} onClick={handleSubmit}>
+          {onOptimize && (
+            <Button variant="outline" disabled={!file} onClick={handleOptimize}>
+              <Sparkles className="mr-2 h-3.5 w-3.5" />
+              Optimieren…
+            </Button>
+          )}
+          <Button disabled={!file || tooLargeToStore} onClick={handleSubmit}>
             {replacing ? 'Austauschen' : 'Hinzufügen'}
           </Button>
         </DialogFooter>
