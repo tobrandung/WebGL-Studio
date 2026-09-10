@@ -43,6 +43,13 @@ type PropertiesPanelProps = {
   environment: EnvironmentConfig | null;
   /** Non-null when the world/background entry is selected. */
   background: string | null;
+  /**
+   * The scene's environment regardless of what is selected. The world panel
+   * needs it to offer the HDRI as a background source — and to hide that
+   * option entirely when no environment has been added.
+   */
+  sceneEnvironment: EnvironmentConfig | null;
+  onUseEnvironmentBackground: (use: boolean) => void;
   keyframe: KeyframeSelection | null;
   onUpdateModelTransform: (key: ModelTransformKey, value: [number, number, number]) => void;
   onUpdateLight: (id: string, patch: Partial<LightEntry>) => void;
@@ -81,6 +88,8 @@ export function PropertiesPanel({
   light,
   environment,
   background,
+  sceneEnvironment,
+  onUseEnvironmentBackground,
   keyframe,
   onUpdateModelTransform,
   onUpdateLight,
@@ -113,7 +122,12 @@ export function PropertiesPanel({
           />
         )}
         {background !== null && (
-          <WorldProperties background={background} onUpdate={onUpdateBackground} />
+          <WorldProperties
+            background={background}
+            environment={sceneEnvironment}
+            onUpdate={onUpdateBackground}
+            onUseEnvironmentBackground={onUseEnvironmentBackground}
+          />
         )}
         {light && <LightProperties light={light} onUpdate={onUpdateLight} />}
         {keyframe && (
@@ -177,18 +191,36 @@ function grayToHex(value: number): string {
   return `#${channel}${channel}${channel}`;
 }
 
-type BackgroundMode = 'gray' | 'custom';
+type BackgroundMode = 'hdri' | 'gray' | 'custom';
 
+/**
+ * The three mutually exclusive background sources. Only one can own
+ * `scene.background`, so picking a colour turns the HDRI dome off and picking
+ * the HDRI leaves the colour untouched — switch back and the grey/hex values
+ * are still there. The HDRI card only exists while an environment is loaded.
+ */
 function WorldProperties({
   background,
+  environment,
   onUpdate,
+  onUseEnvironmentBackground,
 }: {
   background: string;
+  environment: EnvironmentConfig | null;
   onUpdate: (color: string) => void;
+  onUseEnvironmentBackground: (use: boolean) => void;
 }) {
-  const [mode, setMode] = useState<BackgroundMode>(() =>
+  const hdriActive = environment?.showBackground ?? false;
+  const [colorMode, setColorMode] = useState<Exclude<BackgroundMode, 'hdri'>>(() =>
     isPureGray(background) ? 'gray' : 'custom',
   );
+  // While the dome is shown it *is* the background, so it wins over whichever
+  // colour card was last picked; that choice is remembered underneath.
+  const mode: BackgroundMode = hdriActive ? 'hdri' : colorMode;
+  const setMode = (next: Exclude<BackgroundMode, 'hdri'>) => {
+    setColorMode(next);
+    if (hdriActive) onUseEnvironmentBackground(false);
+  };
   // Slider-Wert entkoppelt von der aktuellen Farbe im Custom-Modus.
   const [graySliderValue, setGraySliderValue] = useState(() =>
     isPureGray(background) ? hexToGrayChannel(background) : 26,
@@ -227,9 +259,39 @@ function WorldProperties({
     <>
       <p className="text-xs text-muted-foreground">Welt</p>
 
+      {environment && (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-pressed={mode === 'hdri'}
+          onClick={() => onUseEnvironmentBackground(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onUseEnvironmentBackground(true);
+            }
+          }}
+          className={cn(
+            'cursor-pointer rounded-lg border p-3 transition-colors',
+            mode === 'hdri'
+              ? 'border-ring bg-accent/40 ring-1 ring-ring'
+              : 'border-border/60 opacity-60 hover:opacity-80',
+          )}
+        >
+          <Label className="mb-2 block text-xs">HDRI-Hintergrund</Label>
+          <p className="truncate text-[11px] text-muted-foreground" title={environment.fileName}>
+            {environment.fileName}
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Intensität und Unschärfe unter „Umgebung“.
+          </p>
+        </div>
+      )}
+
       <div
         role="button"
         tabIndex={0}
+        aria-pressed={mode === 'gray'}
         onClick={() => applyGray(graySliderValue)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -264,6 +326,7 @@ function WorldProperties({
       <div
         role="button"
         tabIndex={0}
+        aria-pressed={mode === 'custom'}
         onClick={() => {
           setMode('custom');
           setHexDraft(background);

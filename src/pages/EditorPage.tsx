@@ -1212,6 +1212,28 @@ export function EditorPage() {
     [runCommand],
   );
 
+  /**
+   * Switching the background source between the HDRI dome and a solid colour.
+   * Same state as the environment panel's "Als Hintergrund zeigen" switch, but
+   * it gets its own undo label because that is what the user just did.
+   */
+  const handleUseEnvironmentBackground = useCallback(
+    (use: boolean) => {
+      const before = environmentRef.current;
+      if (!before || before.showBackground === use) return;
+      runCommand(
+        stateCommand({
+          type: 'environment:update',
+          label: use ? 'HDRI als Hintergrund' : 'HDRI-Hintergrund aus',
+          before,
+          after: { ...before, showBackground: use },
+          apply: setEnvironment,
+        }),
+      );
+    },
+    [runCommand],
+  );
+
   const handleRemoveEnvironment = useCallback(() => {
     const before = environmentRef.current;
     if (!before) return;
@@ -1671,6 +1693,8 @@ export function EditorPage() {
           light={selectedKind === 'light' ? lights.find((l) => l.id === selectedId) ?? null : null}
           environment={selectedKind === 'environment' ? environment : null}
           background={selectedKind === 'world' ? background : null}
+          sceneEnvironment={environment}
+          onUseEnvironmentBackground={handleUseEnvironmentBackground}
           keyframe={selectedKeyframe}
           onUpdateModelTransform={handleUpdateModelTransform}
           onUpdateLight={handleUpdateLight}
