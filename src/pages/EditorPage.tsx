@@ -37,7 +37,12 @@ import {
   EnvironmentUploadDialog,
   type EnvironmentUploadResult,
 } from '@/components/EnvironmentUploadDialog';
-import { PropertiesPanel, type KeyframeSelection } from '@/components/PropertiesPanel';
+import {
+  PropertiesPanel,
+  type KeyframeSelection,
+  type ModelSelection,
+  type ModelTransformKey,
+} from '@/components/PropertiesPanel';
 import { KeyframeEditor, type CameraPathImport } from '@/components/KeyframeEditor';
 import { ExportDialog } from '@/components/ExportDialog';
 import { SceneOutliner, type OutlinerSelectionKind } from '@/components/SceneOutliner';
@@ -84,8 +89,18 @@ const TRANSFORM_LABEL: Record<TransformMode, string> = {
   scale: 'Skalieren',
 };
 
+/** Which tool a panel-edited transform channel belongs to, for undo labels. */
+const TRANSFORM_MODE_FOR_CHANNEL: Record<ModelTransformKey, TransformMode> = {
+  position: 'translate',
+  rotation: 'rotate',
+  scale: 'scale',
+};
+
 /** Clicks landing this soon after a gizmo drag are the drag's own mouse-up. */
 const CLICK_AFTER_DRAG_MS = 200;
+
+/** Pointer travel (px) up to which a press/release still counts as a click. */
+const CLICK_SLOP_PX = 4;
 
 function readTransform(object: THREE.Object3D): Transform {
   return {
@@ -122,6 +137,10 @@ export function EditorPage() {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedKind, setSelectedKind] = useState<OutlinerSelectionKind | null>(null);
+  // Live transform of the selected model, mirrored out of its THREE object so
+  // the numeric fields track gizmo drags. Model transforms live in the scene
+  // graph (not in React state), hence the mirror rather than a lookup.
+  const [modelTransform, setModelTransform] = useState<Transform | null>(null);
   const [keyframes, setKeyframes] = useState<Keyframe[]>([]);
   const [isLoop, setIsLoop] = useState(true);
   const [cameraSpeed, setCameraSpeed] = useState(1);
@@ -180,6 +199,8 @@ export function EditorPage() {
 
   const dragSnapshotRef = useRef<DragSnapshot | null>(null);
   const lastDragEndRef = useRef(0);
+  /** Where the current press started, to tell a pick from a camera orbit. */
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
   const commitDragRef = useRef<((snapshot: DragSnapshot, mode: TransformMode) => void) | null>(null);
 
   // Load project
@@ -208,6 +229,36 @@ export function EditorPage() {
     })();
   }, [id, navigate, history.clear]);
 
+  /**
+   * Reads the model's transform back out of the scene graph. Falls back to the
+   * persisted record while a freshly added model's async load is still running —
+   * `loadModelFromBuffer` seeds the group from exactly those values, so the
+   * fields never show anything the scene disagrees with.
+   */
+  const syncModelTransform = useCallback((modelId: string) => {
+    const group = viewportRef.current?.models.get(modelId);
+    if (group) {
+      setModelTransform(readTransform(group));
+      return;
+    }
+    const entry = modelsRef.current.find((m) => m.id === modelId);
+    setModelTransform(
+      entry ? { position: entry.position, rotation: entry.rotation, scale: entry.scale } : null,
+    );
+  }, []);
+
+  /**
+   * Writes a transform into the live group (re-resolved by id, because undoing
+   * past a delete/restore hands back a different group object) and refreshes the
+   * mirrored values when that model is the selected one.
+   */
+  const applyModelTransform = useCallback((modelId: string, transform: Transform) => {
+    writeTransform(viewportRef.current?.models.get(modelId), transform);
+    if (selectionRef.current.kind === 'model' && selectionRef.current.id === modelId) {
+      setModelTransform(transform);
+    }
+  }, []);
+
   // Init viewport
   useEffect(() => {
     if (!canvasRef.current || !project) return;
@@ -219,7 +270,11 @@ export function EditorPage() {
       // Read a dragged light's or keyframe marker's position back out of the
       // THREE object into state so panels and persistence stay in sync.
       const sel = selectionRef.current;
-      if (sel.kind === 'light' && sel.id) {
+      if (sel.kind === 'model' && sel.id) {
+        // Models keep their transform in the scene graph; mirror it so the
+        // numeric fields move along with the gizmo.
+        syncModelTransform(sel.id);
+      } else if (sel.kind === 'light' && sel.id) {
         const record = ctx.lights.get(sel.id);
         if (record) {
           const p = record.light.position;
@@ -305,6 +360,17 @@ export function EditorPage() {
     if (!marker || viewport.transformControls.object === marker) return;
     selectObject(viewport, selectedId, 'keyframe');
   }, [viewport, selectedId, selectedKind, keyframes]);
+
+  // Seed the numeric transform fields for the selected model. Keyed on `models`
+  // as well so a model that was just added (its record appears before its mesh
+  // finishes loading) picks up the group once it exists.
+  useEffect(() => {
+    if (selectedKind !== 'model' || !selectedId) {
+      setModelTransform(null);
+      return;
+    }
+    syncModelTransform(selectedId);
+  }, [selectedKind, selectedId, models, viewport, syncModelTransform]);
 
   // Apply the solid background colour. A visible environment dome owns
   // `scene.background`, so skip while one is shown (the environment effect below
@@ -539,6 +605,10 @@ export function EditorPage() {
     selectionRef.current = { id: nextId, kind };
     setSelectedId(nextId);
     setSelectedKind(kind);
+    // Lights and path markers are translate-only, and `selectObject` forces the
+    // gizmo accordingly — mirror that in the toolbar so the button (and the
+    // properties panel, which follows the mode) cannot claim rotate/scale.
+    if (kind === 'light' || kind === 'keyframe') setTransformModeState('translate');
     if (!ctx) return;
     if (kind === 'model' || kind === 'light' || kind === 'keyframe') {
       selectObject(ctx, nextId, kind);
@@ -606,8 +676,8 @@ export function EditorPage() {
         pushCommand({
           type: `transform:model:${mode}`,
           label: name ? `${TRANSFORM_LABEL[mode]}: "${name}"` : TRANSFORM_LABEL[mode],
-          execute: () => writeTransform(viewportRef.current?.models.get(modelId), after),
-          undo: () => writeTransform(viewportRef.current?.models.get(modelId), before),
+          execute: () => applyModelTransform(modelId, after),
+          undo: () => applyModelTransform(modelId, before),
         });
         return;
       }
@@ -639,7 +709,31 @@ export function EditorPage() {
         }),
       );
     },
-    [pushCommand],
+    [pushCommand, applyModelTransform],
+  );
+
+  /** Commits one edited transform channel from the properties panel. */
+  const handleUpdateModelTransform = useCallback(
+    (key: ModelTransformKey, value: [number, number, number]) => {
+      const { id: modelId, kind } = selectionRef.current;
+      if (!modelId || kind !== 'model') return;
+      const group = viewportRef.current?.models.get(modelId);
+      if (!group) return;
+
+      const before = readTransform(group);
+      const after: Transform = { ...before, [key]: value };
+      if (sameTransform(before, after)) return;
+
+      const mode = TRANSFORM_MODE_FOR_CHANNEL[key];
+      const name = modelsRef.current.find((m) => m.id === modelId)?.name;
+      runCommand({
+        type: `transform:model:${mode}`,
+        label: name ? `${TRANSFORM_LABEL[mode]}: "${name}"` : TRANSFORM_LABEL[mode],
+        execute: () => applyModelTransform(modelId, after),
+        undo: () => applyModelTransform(modelId, before),
+      });
+    },
+    [runCommand, applyModelTransform],
   );
 
   useEffect(() => {
@@ -1077,6 +1171,13 @@ export function EditorPage() {
     return { keyframe: keyframes[index], index: index + 1, part: parsed.part };
   }, [selectedKind, selectedId, keyframes]);
 
+  const selectedModel = useMemo<ModelSelection | null>(() => {
+    if (selectedKind !== 'model' || !selectedId || !modelTransform) return null;
+    const entry = models.find((m) => m.id === selectedId);
+    if (!entry) return null;
+    return { id: entry.id, name: entry.name, ...modelTransform };
+  }, [selectedKind, selectedId, models, modelTransform]);
+
   const selectKeyframe = useCallback(
     (keyframeId: string | null, part: KeyframePart = 'position') => {
       if (!keyframeId) {
@@ -1265,12 +1366,24 @@ export function EditorPage() {
     setTransformModeState(mode);
   }, []);
 
+  const handleCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    pointerDownRef.current = { x: e.clientX, y: e.clientY };
+  }, []);
+
   const handleModelClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const ctx = viewportRef.current;
     if (!ctx || !canvasRef.current) return;
     // Ignore the mouse-up that ends a gizmo drag; it would clear the selection.
     if (ctx.transformControls.dragging) return;
     if (performance.now() - lastDragEndRef.current < CLICK_AFTER_DRAG_MS) return;
+
+    // An orbit ends in a click on the canvas too, and treating that as a pick
+    // would drop the selection (and close the properties panel) every time the
+    // user just turned the view. Anything that travelled further than the slop
+    // was a camera drag, not a pick.
+    const down = pointerDownRef.current;
+    pointerDownRef.current = null;
+    if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_SLOP_PX) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
     const mouse = new THREE.Vector2(
@@ -1455,17 +1568,22 @@ export function EditorPage() {
       <canvas
         ref={canvasRef}
         className="h-full w-full"
+        onPointerDown={handleCanvasPointerDown}
         onClick={handleModelClick}
       />
       {(selectedKind === 'world' ||
         (selectedKind === 'light' && selectedId) ||
         (selectedKind === 'environment' && environment) ||
+        selectedModel ||
         selectedKeyframe) && (
         <PropertiesPanel
+          model={selectedModel}
+          transformMode={transformModeState}
           light={selectedKind === 'light' ? lights.find((l) => l.id === selectedId) ?? null : null}
           environment={selectedKind === 'environment' ? environment : null}
           background={selectedKind === 'world' ? background : null}
           keyframe={selectedKeyframe}
+          onUpdateModelTransform={handleUpdateModelTransform}
           onUpdateLight={handleUpdateLight}
           onUpdateEnvironment={handleUpdateEnvironment}
           onReplaceEnvironment={() => setShowEnvDialog(true)}

@@ -12,6 +12,7 @@ import { environmentFormat, type LightEntry, type EnvironmentConfig } from '@/li
 import { BUDGET_OK } from '@/lib/hdri/budget';
 import { ENVIRONMENT_FORMAT_LABEL } from '@/lib/hdri/format';
 import type { Keyframe, KeyframePart } from '@/three/camera-path';
+import type { TransformMode } from '@/three/viewport';
 
 export type KeyframeSelection = {
   keyframe: Keyframe;
@@ -20,12 +21,27 @@ export type KeyframeSelection = {
   part: KeyframePart;
 };
 
+export type ModelTransformKey = 'position' | 'rotation' | 'scale';
+
+export type ModelSelection = {
+  id: string;
+  name: string;
+  position: [number, number, number];
+  /** Euler angles in radians, as THREE stores them. */
+  rotation: [number, number, number];
+  scale: [number, number, number];
+};
+
 type PropertiesPanelProps = {
+  model: ModelSelection | null;
+  /** Decides which of the model's transform values the panel exposes. */
+  transformMode: TransformMode;
   light: LightEntry | null;
   environment: EnvironmentConfig | null;
   /** Non-null when the world/background entry is selected. */
   background: string | null;
   keyframe: KeyframeSelection | null;
+  onUpdateModelTransform: (key: ModelTransformKey, value: [number, number, number]) => void;
   onUpdateLight: (id: string, patch: Partial<LightEntry>) => void;
   onUpdateEnvironment: (patch: Partial<EnvironmentConfig>) => void;
   onReplaceEnvironment: () => void;
@@ -55,10 +71,13 @@ function ValueLabel({ label, value }: { label: string; value: string }) {
 }
 
 export function PropertiesPanel({
+  model,
+  transformMode,
   light,
   environment,
   background,
   keyframe,
+  onUpdateModelTransform,
   onUpdateLight,
   onUpdateEnvironment,
   onReplaceEnvironment,
@@ -79,6 +98,13 @@ export function PropertiesPanel({
       </div>
       <Separator />
       <div className="flex-1 space-y-4 overflow-y-auto p-3">
+        {model && (
+          <ModelProperties
+            model={model}
+            transformMode={transformMode}
+            onUpdate={onUpdateModelTransform}
+          />
+        )}
         {background !== null && (
           <WorldProperties background={background} onUpdate={onUpdateBackground} />
         )}
@@ -498,9 +524,14 @@ function Vec3Field({
   const [focusedAxis, setFocusedAxis] = useState<number | null>(null);
 
   // Mirror external changes (gizmo drag) into the fields without clobbering
-  // the axis the user is typing in.
+  // the axis the user is typing in. Returning `prev` when nothing actually
+  // differs keeps callers that pass a computed array (degrees converted from
+  // radians, i.e. a fresh array per render) from looping forever.
   useEffect(() => {
-    setDrafts((prev) => value.map((v, i) => (i === focusedAxis ? prev[i] : formatAxis(v))));
+    setDrafts((prev) => {
+      const next = value.map((v, i) => (i === focusedAxis ? prev[i] : formatAxis(v)));
+      return next.every((draft, i) => draft === prev[i]) ? prev : next;
+    });
   }, [value, focusedAxis]);
 
   const commit = (index: number, raw: string) => {
@@ -547,6 +578,57 @@ function Vec3Field({
         ))}
       </div>
     </Row>
+  );
+}
+
+/**
+ * Which transform the panel exposes follows the active tool, the way a DCC's
+ * coordinate manager does: the toolbar picks the channel, the fields edit it.
+ * Rotation is shown in degrees — radians in a UI field would be unreadable.
+ */
+const TRANSFORM_FIELD: Record<TransformMode, { key: ModelTransformKey; label: string }> = {
+  translate: { key: 'position', label: 'Position' },
+  rotate: { key: 'rotation', label: 'Rotation (°)' },
+  scale: { key: 'scale', label: 'Skalierung' },
+};
+
+function ModelProperties({
+  model,
+  transformMode,
+  onUpdate,
+}: {
+  model: ModelSelection;
+  transformMode: TransformMode;
+  onUpdate: (key: ModelTransformKey, value: [number, number, number]) => void;
+}) {
+  const { key, label } = TRANSFORM_FIELD[transformMode];
+  const isRotation = key === 'rotation';
+  const value = isRotation
+    ? (model.rotation.map((r) => r * RAD_TO_DEG) as [number, number, number])
+    : model[key];
+
+  return (
+    <>
+      <p className="truncate text-xs text-muted-foreground" title={model.name}>
+        {model.name}
+      </p>
+
+      <Vec3Field
+        label={label}
+        value={value}
+        onChange={(next) =>
+          onUpdate(
+            key,
+            isRotation ? (next.map((d) => d * DEG_TO_RAD) as [number, number, number]) : next,
+          )
+        }
+      />
+
+      <p className="text-[11px] text-muted-foreground">
+        Zeigt die Werte des aktiven Werkzeugs — mit G (Verschieben), R (Rotieren) und S (Skalieren)
+        umschalten.
+      </p>
+    </>
   );
 }
 

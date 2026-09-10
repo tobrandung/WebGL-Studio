@@ -116,7 +116,11 @@ export function createViewport(
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: transparent });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+  // updateStyle=false: the canvas is sized by CSS (`h-full w-full`). Letting
+  // three write inline width/height would pin it to its start size, and since
+  // the ResizeObserver below watches the canvas itself, it would then never see
+  // the container change again — the viewport could never follow the window.
+  renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.2;
@@ -154,7 +158,7 @@ export function createViewport(
     const height = canvas.clientHeight;
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    renderer.setSize(width, height);
+    renderer.setSize(width, height, false);
   }
   const resizeObserver = new ResizeObserver(handleResize);
   resizeObserver.observe(canvas);

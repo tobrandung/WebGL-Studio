@@ -66,7 +66,10 @@ export function PreviewPage() {
 
     const renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current, antialias: true, alpha: project.settings.transparent });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(canvasRef.current.clientWidth, canvasRef.current.clientHeight);
+    // updateStyle=false: this canvas is CSS-sized, and inline width/height from
+    // three would pin it, leaving the ResizeObserver below blind to container
+    // changes (it observes the canvas itself).
+    renderer.setSize(canvasRef.current.clientWidth, canvasRef.current.clientHeight, false);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
@@ -137,7 +140,7 @@ export function PreviewPage() {
       if (!canvasRef.current) return;
       camera.aspect = canvasRef.current.clientWidth / canvasRef.current.clientHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(canvasRef.current.clientWidth, canvasRef.current.clientHeight);
+      renderer.setSize(canvasRef.current.clientWidth, canvasRef.current.clientHeight, false);
     });
     resizeObserver.observe(canvasRef.current);
 
