@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { Upload, FileBox } from 'lucide-react';
+import { Upload, FileBox, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -10,17 +10,28 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { isSupportedModelFile } from '@/three/viewport';
+import { isSupportedModelFile, IMPORT_ACCEPT } from '@/three/viewport';
 
 type ModelUploadDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUpload: (file: File) => void;
+  /**
+   * Name of the model whose file is being swapped out. Set it to switch the
+   * dialog from "add a model" to "replace this model's file"; the wording has
+   * to say so, since replacing keeps the transform and drops the old geometry.
+   */
+  replacing?: string | null;
 };
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
-export function ModelUploadDialog({ open, onOpenChange, onUpload }: ModelUploadDialogProps) {
+export function ModelUploadDialog({
+  open,
+  onOpenChange,
+  onUpload,
+  replacing,
+}: ModelUploadDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState('');
   const [dragOver, setDragOver] = useState(false);
@@ -29,7 +40,7 @@ export function ModelUploadDialog({ open, onOpenChange, onUpload }: ModelUploadD
   const handleFile = useCallback((f: File) => {
     setError('');
     if (!isSupportedModelFile(f.name)) {
-      setError('Nicht unterstütztes Format. Erlaubt: .glb, .gltf, .fbx, .obj, .stl, .dae, .3ds');
+      setError('Nicht unterstütztes Format. Erlaubt ist nur .glb.');
       return;
     }
     if (f.size > MAX_FILE_SIZE) {
@@ -71,9 +82,11 @@ export function ModelUploadDialog({ open, onOpenChange, onUpload }: ModelUploadD
     >
       <DialogContent className="min-w-0 overflow-hidden sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Modell hinzufügen</DialogTitle>
+          <DialogTitle>{replacing ? 'Modell austauschen' : 'Modell hinzufügen'}</DialogTitle>
           <DialogDescription>
-            Lade ein 3D-Modell hoch (.glb, .gltf, .fbx, .obj, .stl, .dae). Max. 100 MB.
+            {replacing
+              ? `Ersetzt die Datei von „${replacing}“. Name, Position, Rotation und Skalierung bleiben erhalten.`
+              : 'Lade ein 3D-Modell als .glb hoch. Max. 100 MB.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -96,10 +109,11 @@ export function ModelUploadDialog({ open, onOpenChange, onUpload }: ModelUploadD
           >
             <Upload className="h-8 w-8 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">Datei hierher ziehen oder klicken</p>
+            <p className="text-xs text-muted-foreground">Nur .glb</p>
             <Input
               ref={inputRef}
               type="file"
-              accept=".glb,.gltf,.fbx,.obj,.stl,.dae,.3ds"
+              accept={IMPORT_ACCEPT}
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -124,6 +138,20 @@ export function ModelUploadDialog({ open, onOpenChange, onUpload }: ModelUploadD
           </div>
         )}
 
+        <div className="flex gap-2.5 rounded-lg bg-secondary/60 p-3 text-xs leading-relaxed text-muted-foreground">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="font-medium text-foreground">
+              Bitte mit Material und Texturen exportieren.
+            </p>
+            <p className="mt-1">
+              GLB legt die Texturen als Chunks in die Datei — sie kommen also mit, solange der
+              Export Materialien einschließt. Aus FBX, OBJ oder Collada vorher ein GLB machen
+              (Blender: Import, dann „glTF 2.0 (.glb)“ exportieren).
+            </p>
+          </div>
+        </div>
+
         {error && <p className="text-sm text-red-400">{error}</p>}
 
         <DialogFooter>
@@ -131,7 +159,7 @@ export function ModelUploadDialog({ open, onOpenChange, onUpload }: ModelUploadD
             Abbrechen
           </Button>
           <Button disabled={!file} onClick={handleSubmit}>
-            Hinzufügen
+            {replacing ? 'Austauschen' : 'Hinzufügen'}
           </Button>
         </DialogFooter>
       </DialogContent>

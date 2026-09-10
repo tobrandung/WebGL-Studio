@@ -66,7 +66,10 @@ export function PreviewPage() {
 
     const renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current, antialias: true, alpha: project.settings.transparent });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(canvasRef.current.clientWidth, canvasRef.current.clientHeight);
+    // updateStyle=false: this canvas is CSS-sized, and inline width/height from
+    // three would pin it, leaving the ResizeObserver below blind to container
+    // changes (it observes the canvas itself).
+    renderer.setSize(canvasRef.current.clientWidth, canvasRef.current.clientHeight, false);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
@@ -105,22 +108,27 @@ export function PreviewPage() {
       dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
       gltfLoader.setDRACOLoader(dracoLoader);
 
-      for (const model of models) {
-        const blob = await db.get('blobs', model.id);
-        if (!blob) continue;
-        try {
-          const gltf = await gltfLoader.parseAsync(blob.data, '');
-          const wrapper = new THREE.Group();
-          wrapper.add(gltf.scene);
-          const box = new THREE.Box3().setFromObject(wrapper);
-          const center = box.getCenter(new THREE.Vector3());
-          gltf.scene.position.sub(center);
-          wrapper.position.set(...model.position);
-          wrapper.rotation.set(...model.rotation);
-          wrapper.scale.set(...model.scale);
-          scene.add(wrapper);
-        } catch { /* skip unsupported formats in preview */ }
-      }
+      await Promise.all(
+        models.map(async (model) => {
+          const blob = await db.get('blobs', model.id);
+          if (!blob) return;
+          try {
+            const gltf = await gltfLoader.parseAsync(blob.data, '');
+            const wrapper = new THREE.Group();
+            wrapper.add(gltf.scene);
+            const box = new THREE.Box3().setFromObject(wrapper);
+            const center = box.getCenter(new THREE.Vector3());
+            gltf.scene.position.sub(center);
+            wrapper.position.set(...model.position);
+            wrapper.rotation.set(...model.rotation);
+            wrapper.scale.set(...model.scale);
+            scene.add(wrapper);
+          } catch (err) {
+            // One unreadable model must not blank the whole preview.
+            console.error('[Preview] Modell konnte nicht geladen werden:', model.name, err);
+          }
+        }),
+      );
       dracoLoader.dispose();
     })();
 
@@ -135,7 +143,7 @@ export function PreviewPage() {
       if (!canvasRef.current) return;
       camera.aspect = canvasRef.current.clientWidth / canvasRef.current.clientHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(canvasRef.current.clientWidth, canvasRef.current.clientHeight);
+      renderer.setSize(canvasRef.current.clientWidth, canvasRef.current.clientHeight, false);
     });
     resizeObserver.observe(canvasRef.current);
 

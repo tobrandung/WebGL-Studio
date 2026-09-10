@@ -5,6 +5,7 @@ import {
   MoreHorizontal,
   Pencil,
   Copy,
+  Replace,
   Trash2,
   ChevronRight,
   ChevronDown,
@@ -69,6 +70,8 @@ type SceneOutlinerProps = {
   onToggleVisibility: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
+  /** Swaps a model's file, keeping its name and transform. */
+  onReplace: (id: string) => void;
   onDelete: (id: string) => void;
   onToggleLightVisibility: (id: string) => void;
   onRenameLight: (id: string, name: string) => void;
@@ -96,6 +99,7 @@ export function SceneOutliner({
   onToggleVisibility,
   onRename,
   onDuplicate,
+  onReplace,
   onDelete,
   onToggleLightVisibility,
   onRenameLight,
@@ -295,6 +299,10 @@ export function SceneOutliner({
             <DropdownMenuItem onClick={() => onDuplicate(model.id)}>
               <Copy className="mr-2 h-3.5 w-3.5" />
               Duplizieren
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onReplace(model.id)}>
+              <Replace className="mr-2 h-3.5 w-3.5" />
+              Austauschen
             </DropdownMenuItem>
             {model.groupId && (
               <DropdownMenuItem

@@ -3,10 +3,6 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
-import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { STLLoader } from 'three/addons/loaders/STLLoader.js';
-import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 import {
   syncLights,
   applyEnvironment,
@@ -46,11 +42,64 @@ export type ViewportContext = {
 
 export type TransformMode = 'translate' | 'rotate' | 'scale';
 
-const SUPPORTED_EXTENSIONS = ['.glb', '.gltf', '.fbx', '.obj', '.stl', '.dae', '.3ds'];
+/**
+ * The one format we accept. GLB is a single binary container that carries its
+ * textures inside the file, and it is the only format the planned compression
+ * step can even express: Draco geometry and KTX2/Basis textures are both glTF
+ * extensions. Keeping the editor, the preview, the exported widget and that
+ * pipeline on one format means one code path and one thing to test.
+ */
+export const IMPORT_EXTENSIONS = ['.glb'] as const;
+export const IMPORT_ACCEPT = IMPORT_EXTENSIONS.join(',');
+
+const MATERIAL_TEXTURE_KEYS = [
+  'map',
+  'normalMap',
+  'roughnessMap',
+  'metalnessMap',
+  'aoMap',
+  'emissiveMap',
+  'displacementMap',
+  'alphaMap',
+  'envMap',
+  'lightMap',
+  'bumpMap',
+  'specularMap',
+  'clearcoatMap',
+  'clearcoatNormalMap',
+  'clearcoatRoughnessMap',
+  'transmissionMap',
+  'thicknessMap',
+  'sheenColorMap',
+  'sheenRoughnessMap',
+] as const;
+
+function disposeMaterial(material: THREE.Material) {
+  const record = material as unknown as Record<string, unknown>;
+  for (const key of MATERIAL_TEXTURE_KEYS) {
+    const texture = record[key];
+    if (texture instanceof THREE.Texture) texture.dispose();
+  }
+  material.dispose();
+}
+
+/** Traverses a loaded model and disposes every geometry/material/texture it owns. */
+function disposeObject3D(object: THREE.Object3D) {
+  object.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry?.dispose();
+    if (Array.isArray(mesh.material)) {
+      mesh.material.forEach(disposeMaterial);
+    } else if (mesh.material) {
+      disposeMaterial(mesh.material);
+    }
+  });
+}
 
 export function isSupportedModelFile(filename: string): boolean {
   const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
-  return SUPPORTED_EXTENSIONS.includes(ext);
+  return (IMPORT_EXTENSIONS as readonly string[]).includes(ext);
 }
 
 export function createViewport(
@@ -71,7 +120,11 @@ export function createViewport(
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: transparent });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+  // updateStyle=false: the canvas is sized by CSS (`h-full w-full`). Letting
+  // three write inline width/height would pin it to its start size, and since
+  // the ResizeObserver below watches the canvas itself, it would then never see
+  // the container change again — the viewport could never follow the window.
+  renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.2;
@@ -109,7 +162,7 @@ export function createViewport(
     const height = canvas.clientHeight;
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    renderer.setSize(width, height);
+    renderer.setSize(width, height, false);
   }
   const resizeObserver = new ResizeObserver(handleResize);
   resizeObserver.observe(canvas);
@@ -130,6 +183,9 @@ export function createViewport(
     dispose() {
       disposed = true;
       disposeKeyframeMarkers(scene, keyframeMarkers);
+      for (const model of models.values()) disposeObject3D(model);
+      models.clear();
+      syncLights(scene, [], lights, { helpers: true });
       cancelAnimationFrame(animationId);
       resizeObserver.disconnect();
       transformControls.dispose();
@@ -196,49 +252,29 @@ export async function loadModelFromBuffer(
   rotation: [number, number, number] = [0, 0, 0],
   scale: [number, number, number] = [1, 1, 1],
 ): Promise<THREE.Group> {
-  const ext = fileName.toLowerCase().slice(fileName.lastIndexOf('.'));
-  let object: THREE.Object3D;
+  if (!isSupportedModelFile(fileName)) {
+    throw new Error(`Unsupported format: ${fileName}`);
+  }
 
-  switch (ext) {
-    case '.glb':
-    case '.gltf': {
-      const loader = new GLTFLoader();
-      const dracoLoader = new DRACOLoader();
-      dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
-      loader.setDRACOLoader(dracoLoader);
-      const gltf = await loader.parseAsync(buffer, '');
-      object = gltf.scene;
-      dracoLoader.dispose();
-      break;
-    }
-    case '.fbx': {
-      const loader = new FBXLoader();
-      object = loader.parse(buffer, '');
-      break;
-    }
-    case '.obj': {
-      const loader = new OBJLoader();
-      const text = new TextDecoder().decode(buffer);
-      object = loader.parse(text);
-      break;
-    }
-    case '.stl': {
-      const loader = new STLLoader();
-      const geometry = loader.parse(buffer);
-      const material = new THREE.MeshStandardMaterial({ color: 0x808080 });
-      object = new THREE.Mesh(geometry, material);
-      break;
-    }
-    case '.dae': {
-      const loader = new ColladaLoader();
-      const text = new TextDecoder().decode(buffer);
-      const collada = loader.parse(text, '');
-      if (!collada) throw new Error('Failed to parse Collada file');
-      object = collada.scene;
-      break;
-    }
-    default:
-      throw new Error(`Unsupported format: ${ext}`);
+  const loader = new GLTFLoader();
+  const dracoLoader = new DRACOLoader();
+  dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+  loader.setDRACOLoader(dracoLoader);
+  // Lazily imported: only needed for GLBs authored with KTX2/Basis-compressed
+  // textures, so users who never touch that pay nothing for it.
+  const { KTX2Loader } = await import('three/addons/loaders/KTX2Loader.js');
+  const ktx2Loader = new KTX2Loader();
+  ktx2Loader.setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/libs/basis/');
+  ktx2Loader.detectSupport(ctx.renderer);
+  loader.setKTX2Loader(ktx2Loader);
+
+  let object: THREE.Object3D;
+  try {
+    const gltf = await loader.parseAsync(buffer, '');
+    object = gltf.scene;
+  } finally {
+    dracoLoader.dispose();
+    ktx2Loader.dispose();
   }
 
   const wrapper = new THREE.Group();
@@ -315,6 +351,7 @@ export function removeModel(ctx: ViewportContext, id: string) {
   if (model) {
     ctx.transformControls.detach();
     ctx.scene.remove(model);
+    disposeObject3D(model);
     ctx.models.delete(id);
   }
 }
