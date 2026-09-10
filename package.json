@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "hdri:selftest": "node scripts/hdri-selftest.ts",
     "presets:hdri": "node scripts/convert-hdri.ts",
-    "optimize-glb": "gltf-transform optimize assets/free_1975_porsche_911_930_turbo.glb assets/porsche-911.glb --compress draco --texture-compress webp"
+    "optimize-glb": "gltf-transform optimize assets/free_1975_porsche_911_930_turbo.glb assets/porsche-911.glb --compress draco --texture-compress webp",
+    "optimize:selftest": "node scripts/optimize-selftest.ts"
   },
   "keywords": [],
   "author": "",
@@ -18,12 +19,16 @@
   "dependencies": {
     "@fontsource/geist-mono": "^5.2.8",
     "@fontsource/geist-sans": "^5.2.5",
+    "@gltf-transform/core": "^4.4.0",
+    "@gltf-transform/extensions": "^4.4.0",
+    "@gltf-transform/functions": "^4.4.0",
     "@monogrid/gainmap-js": "3.4.0",
     "@radix-ui/react-tabs": "^1.1.15",
     "@radix-ui/react-toggle": "^1.1.12",
     "@radix-ui/react-toggle-group": "^1.1.13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "draco3dgltf": "^1.5.7",
     "idb": "^8.0.3",
     "lucide-react": "^1.21.0",
     "radix-ui": "^1.6.2",
