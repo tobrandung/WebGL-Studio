@@ -129,6 +129,22 @@
   }
 }
 
+/* Der Vorher/Nachher-Vergleich im Optimieren-Dialog, während der Browser ihn
+   ins Vollbild hebt. Bewusst ungeschichtet (nicht in @layer): Layer gewinnen
+   über Spezifität, und die Layout-Höhe kommt aus einer Tailwind-Utility
+   (`h-48`) in @layer utilities — eine Regel in @layer base würde verlieren.
+   Der Zustand kommt hier aus dem DOM statt aus React: `fullscreenchange` kann
+   ausbleiben (eingebettete Browser-Views brechen Vollbild sofort wieder ab),
+   und eine hängengebliebene Klasse hieße ein bildschirmgroßer Kasten mitten
+   im Dialog. */
+[data-compare-frame]:fullscreen {
+  height: 100%;
+  width: 100%;
+  border-width: 0;
+  border-radius: 0;
+  background-color: var(--background);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
