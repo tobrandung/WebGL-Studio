@@ -16,6 +16,14 @@ import {
  */
 const MEASURE_DEBOUNCE_MS = 600;
 
+/**
+ * The preview costs a real `writeBinary()` — Draco included — plus a full
+ * decode into a second live scene, so it waits noticeably longer than the
+ * number does. A size that lags by a second is annoying; a 3D rebuild that
+ * fires mid-drag is what makes a dialog feel broken.
+ */
+const PREVIEW_DEBOUNCE_MS = 1500;
+
 export type OptimizerStatus = 'idle' | 'opening' | 'ready' | 'measuring' | 'finishing';
 
 export type ModelOptimizer = {
@@ -29,6 +37,8 @@ export type ModelOptimizer = {
    */
   size: SizeBreakdown | null;
   progress: OptimizeProgress | null;
+  /** Encoded GLB for the comparison view; null until one has been built. */
+  preview: ArrayBuffer | null;
   setSettings: (patch: Partial<OptimizeSettings>) => void;
   /** Runs once more and hands back the encoded GLB. */
   finish: () => Promise<ArrayBuffer | null>;
@@ -43,13 +53,18 @@ export type ModelOptimizer = {
  * newest settings are ever measured, so dragging a slider cannot queue up a
  * backlog of stale jobs.
  */
-export function useModelOptimizer(source: ArrayBuffer | null): ModelOptimizer {
+export function useModelOptimizer(
+  source: ArrayBuffer | null,
+  options: { preview?: boolean } = {},
+): ModelOptimizer {
+  const previewEnabled = options.preview ?? false;
   const [status, setStatus] = useState<OptimizerStatus>('idle');
   const [error, setError] = useState('');
   const [settings, setSettingsState] = useState<OptimizeSettings>(DEFAULT_SETTINGS);
   const [analysis, setAnalysis] = useState<SourceAnalysis | null>(null);
   const [measured, setMeasured] = useState<SizeBreakdown | null>(null);
   const [progress, setProgress] = useState<OptimizeProgress | null>(null);
+  const [preview, setPreview] = useState<ArrayBuffer | null>(null);
 
   const sessionRef = useRef<OptimizeSession | null>(null);
   /** Guards against a superseded run resolving after a newer one. */
@@ -69,6 +84,7 @@ export function useModelOptimizer(source: ArrayBuffer | null): ModelOptimizer {
     setError('');
     setMeasured(null);
     setAnalysis(null);
+    setPreview(null);
 
     void (async () => {
       try {
@@ -125,10 +141,38 @@ export function useModelOptimizer(source: ArrayBuffer | null): ModelOptimizer {
       });
   }, []);
 
+  /**
+   * Builds the GLB the comparison view renders. Requesting the bytes forces a
+   * real write, so this runs on its own, slower timer and never on the path
+   * that only needs a number.
+   */
+  const buildPreview = useCallback((next: OptimizeSettings) => {
+    const session = sessionRef.current;
+    if (!session?.isOpen) return;
+
+    const token = tokenRef.current;
+    queueRef.current = queueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (tokenRef.current !== token) return;
+        try {
+          const result = await session.run(next, { wantBuffer: true });
+          if (tokenRef.current !== token) return;
+          // A real write measures exactly, so it also supersedes the number.
+          setMeasured(result.breakdown);
+          setPreview(result.buffer ?? null);
+        } catch {
+          // A failed preview must not disturb the numbers or the confirm path.
+        }
+      });
+  }, []);
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
     },
     [],
   );
@@ -145,8 +189,12 @@ export function useModelOptimizer(source: ArrayBuffer | null): ModelOptimizer {
       tokenRef.current++;
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => measure(next), MEASURE_DEBOUNCE_MS);
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+      if (previewEnabled) {
+        previewTimerRef.current = setTimeout(() => buildPreview(next), PREVIEW_DEBOUNCE_MS);
+      }
     },
-    [measure],
+    [measure, buildPreview, previewEnabled],
   );
 
   // First measurement as soon as the document is open — no debounce, the user
@@ -156,9 +204,10 @@ export function useModelOptimizer(source: ArrayBuffer | null): ModelOptimizer {
     if (status === 'ready' && analysis && !openedRef.current) {
       openedRef.current = true;
       measure(settingsRef.current);
+      if (previewEnabled) buildPreview(settingsRef.current);
     }
     if (!analysis) openedRef.current = false;
-  }, [status, analysis, measure]);
+  }, [status, analysis, measure, buildPreview, previewEnabled]);
 
   /** Measured where available, calculated where not. */
   const size = useMemo<SizeBreakdown | null>(() => {
@@ -171,8 +220,9 @@ export function useModelOptimizer(source: ArrayBuffer | null): ModelOptimizer {
     const session = sessionRef.current;
     if (!session?.isOpen) return null;
 
-    // A pending debounce would otherwise fire a second run behind this one.
+    // Pending timers would otherwise fire more runs behind this one.
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
 
     const token = ++tokenRef.current;
     setStatus('finishing');
@@ -203,5 +253,5 @@ export function useModelOptimizer(source: ArrayBuffer | null): ModelOptimizer {
     }
   }, []);
 
-  return { status, error, settings, analysis, size, progress, setSettings, finish };
+  return { status, error, settings, analysis, size, progress, preview, setSettings, finish };
 }

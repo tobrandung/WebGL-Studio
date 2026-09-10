@@ -17,12 +17,17 @@ import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { InfoHint } from '@/components/ui/info-hint';
 import { SizeBudgetBar } from '@/components/environment/SizeBudgetBar';
+import { CompareCanvas } from '@/components/model/CompareCanvas';
 import { useModelOptimizer } from '@/hooks/useModelOptimizer';
 import { formatSaving } from '@/lib/format';
 import { formatBytes } from '@/lib/utils';
 import type { MaxTextureSize, TextureFormat } from '@/lib/optimize/types';
 
 const MAX_SIZES: MaxTextureSize[] = [512, 1024, 2048, 4096];
+
+/** Above these, holding the model twice on the GPU is not worth the risk. */
+const PREVIEW_GPU_LIMIT = 384 * 1024 * 1024;
+const PREVIEW_FILE_LIMIT = 60 * 1024 * 1024;
 
 type OptimizeDialogProps = {
   open: boolean;
@@ -78,15 +83,29 @@ export function OptimizeDialog({
   source,
   onConfirm,
 }: OptimizeDialogProps) {
-  // Only hand the buffer to the hook while the dialog is open, so closing it
-  // terminates the worker and releases the parsed Document.
+  // The worker takes ownership of what it is given, so it gets a copy and
+  // `source` stays intact for the left-hand side of the comparison. Only
+  // handed over while the dialog is open, so closing it terminates the worker
+  // and releases the parsed Document.
   const [active, setActive] = useState<ArrayBuffer | null>(null);
   useEffect(() => {
-    setActive(open ? source : null);
+    setActive(open && source ? source.slice(0) : null);
   }, [open, source]);
 
-  const optimizer = useModelOptimizer(active);
-  const { analysis, size, settings, setSettings, status, error, progress } = optimizer;
+  /**
+   * Two live copies of a heavy model can exceed what a laptop GPU has: the
+   * textures alone are 4 bytes per pixel plus mipmaps once decoded, whatever
+   * the file costs on disk. Past that the comparison is dropped rather than
+   * risking a lost context — and the panel says so.
+   */
+  const [degraded, setDegraded] = useState(false);
+  const optimizer = useModelOptimizer(active, { preview: !degraded });
+  const { analysis, size, settings, setSettings, status, error, progress, preview } = optimizer;
+
+  useEffect(() => {
+    if (!analysis) return;
+    setDegraded(analysis.gpuBytes > PREVIEW_GPU_LIMIT || analysis.fileSize > PREVIEW_FILE_LIMIT);
+  }, [analysis]);
 
   const busy = status === 'opening' || status === 'measuring' || status === 'finishing';
   const estimated = size ? !size.measured : false;
@@ -112,7 +131,11 @@ export function OptimizeDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        {/* Capped and scrollable rather than pushing the footer off screen:
+            settings, preview and breakdown together exceed a laptop viewport.
+            The cap belongs here, not on DialogContent — that is a grid, and a
+            `flex-1` child inside it collapses to nothing. */}
+        <div className="-mx-1 max-h-[55vh] space-y-4 overflow-y-auto px-1">
           <section className="space-y-3 rounded-lg border p-3">
             <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
               Texturen
@@ -208,6 +231,15 @@ export function OptimizeDialog({
               />
             </div>
           </section>
+
+          {analysis && (
+            <CompareCanvas
+              original={source}
+              optimized={preview}
+              degraded={degraded}
+              busy={status === 'measuring'}
+            />
+          )}
 
           {analysis && (
             <section className="space-y-2">
