@@ -4,12 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
-  DialogContent,
-  DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
+  GlassDialogBody,
+  GlassDialogContent,
+  GlassDialogFooter,
+  GlassDialogHeader,
+} from '@/components/ui/glass-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
@@ -191,16 +192,17 @@ export function EnvironmentUploadDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
+      <GlassDialogContent size="md">
+        <GlassDialogHeader>
           <DialogTitle>{current ? 'Umgebungsbild ersetzen' : 'Umgebung / HDRI hinzufügen'}</DialogTitle>
           <DialogDescription>
             {current
               ? 'Die Einstellungen für Spiegelung, Hintergrund, Intensität und Unschärfe bleiben erhalten.'
               : 'Equirektanguläres Bild als Spiegelung (IBL) und optional als Hintergrund. Die Datei wird mit dem Widget ausgeliefert – ihre Größe landet direkt im Seitengewicht deiner Seite.'}
           </DialogDescription>
-        </DialogHeader>
+        </GlassDialogHeader>
 
+        <GlassDialogBody className="space-y-4">
         <Tabs value={tab} onValueChange={(value) => setTab(value as 'upload' | 'library')}>
           <TabsList>
             <TabsTrigger value="upload">Eigene Datei</TabsTrigger>
@@ -454,8 +456,9 @@ export function EnvironmentUploadDialog({
         </Tabs>
 
         {commitError && <Notice variant="error">{commitError}</Notice>}
+        </GlassDialogBody>
 
-        <DialogFooter className="flex-wrap gap-2">
+        <GlassDialogFooter className="flex-wrap gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={committing}>
             Abbrechen
           </Button>
@@ -486,8 +489,8 @@ export function EnvironmentUploadDialog({
               </Button>
             </>
           )}
-        </DialogFooter>
-      </DialogContent>
+        </GlassDialogFooter>
+      </GlassDialogContent>
     </Dialog>
   );
 }

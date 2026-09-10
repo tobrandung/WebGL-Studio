@@ -3,12 +3,14 @@ import { Loader2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
+  DialogReveal,
   DialogTitle,
-} from '@/components/ui/dialog';
+  GlassDialogBody,
+  GlassDialogContent,
+  GlassDialogFooter,
+  GlassDialogHeader,
+} from '@/components/ui/glass-dialog';
 import { Label } from '@/components/ui/label';
 import { Notice } from '@/components/ui/notice';
 import { Progress } from '@/components/ui/progress';
@@ -126,213 +128,226 @@ export function OptimizeDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="min-w-0 overflow-hidden sm:max-w-lg">
-        <DialogHeader>
+      <GlassDialogContent size="xl">
+        <GlassDialogHeader>
           <DialogTitle>{importing ? 'Beim Import optimieren' : 'Modell optimieren'}</DialogTitle>
           <DialogDescription>
             Komprimiert Texturen und Geometrie von „{modelName}“
             {importing ? ' und fügt das Ergebnis der Szene hinzu' : ''}. Aufräumen (ungenutzte
             Daten entfernen, Duplikate zusammenlegen) läuft immer mit.
           </DialogDescription>
-        </DialogHeader>
+        </GlassDialogHeader>
 
-        {/* Capped and scrollable rather than pushing the footer off screen:
-            settings, preview and breakdown together exceed a laptop viewport.
-            The cap belongs here, not on DialogContent — that is a grid, and a
-            `flex-1` child inside it collapses to nothing. */}
-        <div className="-mx-1 max-h-[55vh] space-y-4 overflow-y-auto px-1">
-          <section className="space-y-3 rounded-lg border p-3">
-            <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-              Texturen
-            </p>
+        <GlassDialogBody className="space-y-4">
+          {/* Settings left, result right. Two columns only from `lg`, where the
+              dialog is actually wide enough for both; below that the same
+              blocks stack, which is what a narrow window gets. */}
+          <div className="grid gap-5 lg:grid-cols-[21rem_minmax(0,1fr)]">
+            <div className="min-w-0 space-y-4">
+              <section className="space-y-3 rounded-lg border p-3">
+                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                  Texturen
+                </p>
 
-            <div className="flex items-center justify-between gap-3">
-              <Label className="text-xs">Format</Label>
-              <ToggleGroup
-                type="single"
-                size="sm"
-                value={settings.textureFormat}
-                onValueChange={(value) =>
-                  value && setSettings({ textureFormat: value as TextureFormat })
-                }
-              >
-                <ToggleGroupItem value="webp" className="px-3 text-xs">
-                  WebP
-                </ToggleGroupItem>
-                <ToggleGroupItem value="keep" className="px-3 text-xs">
-                  unverändert
-                </ToggleGroupItem>
-              </ToggleGroup>
-            </div>
+                <div className="flex items-center justify-between gap-3">
+                  <Label className="text-xs">Format</Label>
+                  <ToggleGroup
+                    type="single"
+                    size="sm"
+                    value={settings.textureFormat}
+                    onValueChange={(value) =>
+                      value && setSettings({ textureFormat: value as TextureFormat })
+                    }
+                  >
+                    <ToggleGroupItem value="webp" className="px-3 text-xs">
+                      WebP
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="keep" className="px-3 text-xs">
+                      unverändert
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
 
-            <div className="flex items-center justify-between gap-3">
-              <Label className="flex items-center gap-1 text-xs">
-                Max. Größe
-                <InfoHint label="Maximale Texturgröße">
-                  Die einzige Einstellung, die auch den GPU-Speicher senkt — und zwar quadratisch.
-                  Das Format ändert nur die Dateigröße, im Speicher der Grafikkarte liegt jede
-                  Textur unkomprimiert.
-                </InfoHint>
-              </Label>
-              <ToggleGroup
-                type="single"
-                size="sm"
-                value={String(settings.maxTextureSize)}
-                onValueChange={(value) =>
-                  value && setSettings({ maxTextureSize: Number(value) as MaxTextureSize })
-                }
-              >
-                {MAX_SIZES.map((size) => (
-                  <ToggleGroupItem key={size} value={String(size)} className="px-2.5 text-xs">
-                    {size}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-1 text-xs">
-                  Qualität
-                  <InfoHint label="Textur-Qualität">
-                    Normal-Maps werden von diesem Regler ausgenommen und immer mit hoher Qualität
-                    gespeichert — sie enthalten Richtungsvektoren, keine Farben, und zeigen
-                    Kompressionsfehler als Streifen im Glanzlicht.
-                  </InfoHint>
-                </Label>
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {Math.round(settings.textureQuality * 100)} %
-                </span>
-              </div>
-              <Slider
-                min={40}
-                max={100}
-                step={5}
-                value={[Math.round(settings.textureQuality * 100)]}
-                onValueChange={([value]) => setSettings({ textureQuality: value / 100 })}
-                disabled={settings.textureFormat === 'keep'}
-                aria-label="Textur-Qualität"
-              />
-            </div>
-          </section>
-
-          <section className="space-y-2 rounded-lg border p-3">
-            <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-              Geometrie
-            </p>
-            <div className="flex items-center justify-between">
-              <Label htmlFor="optimize-draco" className="flex items-center gap-1 text-xs">
-                Komprimieren (Draco)
-                <InfoHint label="Draco">
-                  Verkleinert die Geometrie typisch um das Vier- bis Achtfache. Die Positionen
-                  werden dabei quantisiert — in der Praxis nicht sichtbar. Der Editor, die Vorschau
-                  und das Widget können Draco bereits laden.
-                </InfoHint>
-              </Label>
-              <Switch
-                id="optimize-draco"
-                checked={settings.draco}
-                onCheckedChange={(value) => setSettings({ draco: value })}
-              />
-            </div>
-          </section>
-
-          {analysis && (
-            <CompareCanvas
-              original={source}
-              optimized={preview}
-              degraded={degraded}
-              busy={status === 'measuring'}
-            />
-          )}
-
-          {analysis && (
-            <section className="space-y-2">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-sm">
-                  <span className="text-muted-foreground">{formatBytes(sourceBytes)}</span>
-                  <span className="mx-1.5 text-muted-foreground">→</span>
-                  <span className={estimated ? 'font-medium text-muted-foreground' : 'font-medium'}>
-                    {resultBytes !== undefined
-                      ? `${estimated ? '≈ ' : ''}${formatBytes(resultBytes)}`
-                      : '–'}
-                  </span>
-                </span>
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  {/* Spinner while the encoder catches up, so a number that
-                      has not settled yet never reads as final. */}
-                  {busy && <Loader2 className="h-3 w-3 animate-spin" />}
-                  {resultBytes !== undefined && `−${formatSaving(resultBytes, sourceBytes)}`}
-                </span>
-              </div>
-
-              <SizeBudgetBar
-                sourceBytes={sourceBytes}
-                resultBytes={resultBytes}
-                resultLabel="Optimiert"
-                subject="das Modell"
-              />
-
-              <div className="space-y-1 pt-1">
-                <BreakdownRow
-                  label="Texturen"
-                  before={analysis.textureBytes}
-                  after={size?.textureBytes}
-                  estimated={estimated}
-                />
-                <BreakdownRow
-                  label="Geometrie"
-                  before={analysis.geometryBytes}
-                  after={size?.geometryBytes}
-                  estimated={estimated}
-                />
-                <BreakdownRow
-                  label="GPU-Speicher"
-                  before={analysis.gpuBytes}
-                  after={size?.gpuBytes}
-                  estimated={estimated}
-                  hint={
-                    <InfoHint label="GPU-Speicher">
-                      Was die Texturen entpackt auf der Grafikkarte belegen. Nur die maximale
-                      Texturgröße senkt diesen Wert — WebP verkleinert ausschließlich die Datei.
+                <div className="flex items-center justify-between gap-3">
+                  <Label className="flex items-center gap-1 text-xs">
+                    Max. Größe
+                    <InfoHint label="Maximale Texturgröße">
+                      Die einzige Einstellung, die auch den GPU-Speicher senkt — und zwar
+                      quadratisch. Das Format ändert nur die Dateigröße, im Speicher der
+                      Grafikkarte liegt jede Textur unkomprimiert.
                     </InfoHint>
-                  }
-                />
-              </div>
-            </section>
-          )}
+                  </Label>
+                  <ToggleGroup
+                    type="single"
+                    size="sm"
+                    value={String(settings.maxTextureSize)}
+                    onValueChange={(value) =>
+                      value && setSettings({ maxTextureSize: Number(value) as MaxTextureSize })
+                    }
+                  >
+                    {MAX_SIZES.map((size) => (
+                      <ToggleGroupItem key={size} value={String(size)} className="px-2 text-xs">
+                        {size}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                </div>
 
-          {progress && (
-            <div className="space-y-1.5">
-              <Progress value={Math.round(progress.progress * 100)} />
-              <p className="text-xs text-muted-foreground" aria-live="polite">
-                {progress.label}
-              </p>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-1 text-xs">
+                      Qualität
+                      <InfoHint label="Textur-Qualität">
+                        Normal-Maps werden von diesem Regler ausgenommen und immer mit hoher
+                        Qualität gespeichert — sie enthalten Richtungsvektoren, keine Farben, und
+                        zeigen Kompressionsfehler als Streifen im Glanzlicht.
+                      </InfoHint>
+                    </Label>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {Math.round(settings.textureQuality * 100)} %
+                    </span>
+                  </div>
+                  <Slider
+                    min={40}
+                    max={100}
+                    step={5}
+                    value={[Math.round(settings.textureQuality * 100)]}
+                    onValueChange={([value]) => setSettings({ textureQuality: value / 100 })}
+                    disabled={settings.textureFormat === 'keep'}
+                    aria-label="Textur-Qualität"
+                  />
+                </div>
+              </section>
+
+              <section className="space-y-2 rounded-lg border p-3">
+                <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                  Geometrie
+                </p>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="optimize-draco" className="flex items-center gap-1 text-xs">
+                    Komprimieren (Draco)
+                    <InfoHint label="Draco">
+                      Verkleinert die Geometrie typisch um das Vier- bis Achtfache. Die Positionen
+                      werden dabei quantisiert — in der Praxis nicht sichtbar. Der Editor, die
+                      Vorschau und das Widget können Draco bereits laden.
+                    </InfoHint>
+                  </Label>
+                  <Switch
+                    id="optimize-draco"
+                    checked={settings.draco}
+                    onCheckedChange={(value) => setSettings({ draco: value })}
+                  />
+                </div>
+              </section>
+
+              {/* Sits with the setting it is about, not with the results. */}
+              {settings.textureFormat === 'webp' && (
+                <DialogReveal className="text-[11px] leading-relaxed text-muted-foreground">
+                  WebP-Texturen brauchen die glTF-Erweiterung <code>EXT_texture_webp</code>.
+                  Editor, Vorschau und Widget können das — ältere Viewer und manche DCC-Importer
+                  nicht. Wenn du die Datei auch außerhalb weitergibst, ist „unverändert“ die
+                  portablere Wahl.
+                </DialogReveal>
+              )}
             </div>
-          )}
+
+            <div className="min-w-0 space-y-3">
+              {analysis && (
+                <CompareCanvas
+                  original={source}
+                  optimized={preview}
+                  degraded={degraded}
+                  busy={status === 'measuring'}
+                  className="h-56 lg:h-72"
+                />
+              )}
+
+              {analysis && (
+                <DialogReveal className="space-y-2">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm">
+                      <span className="text-muted-foreground">{formatBytes(sourceBytes)}</span>
+                      <span className="mx-1.5 text-muted-foreground">→</span>
+                      <span
+                        className={estimated ? 'font-medium text-muted-foreground' : 'font-medium'}
+                      >
+                        {resultBytes !== undefined
+                          ? `${estimated ? '≈ ' : ''}${formatBytes(resultBytes)}`
+                          : '–'}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      {/* Spinner while the encoder catches up, so a number that
+                          has not settled yet never reads as final. */}
+                      {busy && <Loader2 className="h-3 w-3 animate-spin" />}
+                      {resultBytes !== undefined && `−${formatSaving(resultBytes, sourceBytes)}`}
+                    </span>
+                  </div>
+
+                  <SizeBudgetBar
+                    sourceBytes={sourceBytes}
+                    resultBytes={resultBytes}
+                    resultLabel="Optimiert"
+                    subject="das Modell"
+                  />
+
+                  <div className="space-y-1 pt-1">
+                    <BreakdownRow
+                      label="Texturen"
+                      before={analysis.textureBytes}
+                      after={size?.textureBytes}
+                      estimated={estimated}
+                    />
+                    <BreakdownRow
+                      label="Geometrie"
+                      before={analysis.geometryBytes}
+                      after={size?.geometryBytes}
+                      estimated={estimated}
+                    />
+                    <BreakdownRow
+                      label="GPU-Speicher"
+                      before={analysis.gpuBytes}
+                      after={size?.gpuBytes}
+                      estimated={estimated}
+                      hint={
+                        <InfoHint label="GPU-Speicher">
+                          Was die Texturen entpackt auf der Grafikkarte belegen. Nur die maximale
+                          Texturgröße senkt diesen Wert — WebP verkleinert ausschließlich die
+                          Datei.
+                        </InfoHint>
+                      }
+                    />
+                  </div>
+                </DialogReveal>
+              )}
+
+              {progress && (
+                <div className="space-y-1.5">
+                  <Progress value={Math.round(progress.progress * 100)} />
+                  <p className="text-xs text-muted-foreground" aria-live="polite">
+                    {progress.label}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
 
           {notes.length > 0 && (
-            <Notice variant="warning">
-              <ul className="space-y-0.5">
-                {notes.map((note, index) => (
-                  <li key={`${index}-${note}`}>{note}</li>
-                ))}
-              </ul>
-            </Notice>
-          )}
-
-          {settings.textureFormat === 'webp' && (
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              WebP-Texturen brauchen die glTF-Erweiterung <code>EXT_texture_webp</code>. Editor,
-              Vorschau und Widget können das — ältere Viewer und manche DCC-Importer nicht. Wenn du
-              die Datei auch außerhalb weitergibst, ist „unverändert“ die portablere Wahl.
-            </p>
+            <DialogReveal>
+              <Notice variant="warning">
+                <ul className="space-y-0.5">
+                  {notes.map((note, index) => (
+                    <li key={`${index}-${note}`}>{note}</li>
+                  ))}
+                </ul>
+              </Notice>
+            </DialogReveal>
           )}
 
           {error && <Notice variant="error">{error}</Notice>}
-        </div>
+        </GlassDialogBody>
 
-        <DialogFooter>
+        <GlassDialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Abbrechen
           </Button>
@@ -346,8 +361,8 @@ export function OptimizeDialog({
             )}
             {importing ? 'Optimieren & hinzufügen' : 'Optimieren'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </GlassDialogFooter>
+      </GlassDialogContent>
     </Dialog>
   );
 }

@@ -22,12 +22,13 @@ import {
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
-  DialogContent,
-  DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
+  DIALOG_TRANSITION,
+  GlassDialogContent,
+  GlassDialogFooter,
+  GlassDialogHeader,
+} from '@/components/ui/glass-dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -608,13 +609,13 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden border-border/50 bg-background/70 p-0 backdrop-blur-[24px] sm:max-w-2xl">
-        <DialogHeader className="shrink-0 px-6 pt-6">
+      <GlassDialogContent size="lg">
+        <GlassDialogHeader>
           <DialogTitle>Widget exportieren</DialogTitle>
           <DialogDescription>
             Generiere ein Embed-Snippet für Webflow, Slater oder dein eigenes Projekt.
           </DialogDescription>
-        </DialogHeader>
+        </GlassDialogHeader>
 
         {!hasEnoughKeyframes && (
           <Notice variant="warning" className="mx-6 mt-4 shrink-0">
@@ -632,7 +633,10 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
             <TabsList ref={tabsListRef} className="relative">
               <span
                 aria-hidden
-                className="pointer-events-none absolute top-1 bottom-1 rounded-md bg-background shadow-sm transition-[left,width] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
+                className={cn(
+                  'pointer-events-none absolute top-1 bottom-1 rounded-md bg-background shadow-sm transition-[left,width]',
+                  DIALOG_TRANSITION,
+                )}
                 style={{ left: tabIndicator.left, width: tabIndicator.width }}
               />
               <TabsTrigger
@@ -661,7 +665,8 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
 
           <div
             className={cn(
-              'overflow-x-hidden transition-[height] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
+              'overflow-x-hidden transition-[height]',
+              DIALOG_TRANSITION,
               panelScrollable ? 'overflow-y-auto' : 'overflow-hidden',
             )}
             style={{ height: panelHeight }}
@@ -1001,12 +1006,12 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
           </div>
         </Tabs>
 
-        <DialogFooter className="shrink-0 border-t px-6 py-4">
+        <GlassDialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Schließen
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </GlassDialogFooter>
+      </GlassDialogContent>
     </Dialog>
   );
 }

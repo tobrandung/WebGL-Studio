@@ -58,6 +58,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
+import { GLASS_SURFACE } from '@/components/ui/glass-dialog';
 import { Button } from '@/components/ui/button';
 import {
   formatKeyframeRef,
@@ -1868,7 +1869,9 @@ export function EditorPage() {
       />
 
       <AlertDialog open={showLeaveDialog} onOpenChange={setShowLeaveDialog}>
-        <AlertDialogContent>
+        {/* Same surface as every Dialog — AlertDialog is a separate Radix
+            primitive, so it takes the class rather than the shell. */}
+        <AlertDialogContent className={GLASS_SURFACE}>
           <AlertDialogHeader>
             <AlertDialogTitle>Ungespeicherte Änderungen</AlertDialogTitle>
             <AlertDialogDescription>

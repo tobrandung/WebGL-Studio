@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { createCompareView, type CompareView } from '@/three/preview-compare';
 
 type CompareCanvasProps = {
@@ -10,13 +11,21 @@ type CompareCanvasProps = {
   /** Shown instead of the right-hand side when the model is too big to hold twice. */
   degraded?: boolean;
   busy?: boolean;
+  /** Height override — the caller knows how much room the layout gives it. */
+  className?: string;
 };
 
 /**
  * Before/after comparison. Both halves share one camera, so dragging turns
  * both models identically and any difference on screen is the compression.
  */
-export function CompareCanvas({ original, optimized, degraded, busy }: CompareCanvasProps) {
+export function CompareCanvas({
+  original,
+  optimized,
+  degraded,
+  busy,
+  className,
+}: CompareCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<CompareView | null>(null);
   const [error, setError] = useState('');
@@ -76,7 +85,9 @@ export function CompareCanvas({ original, optimized, degraded, busy }: CompareCa
   }, [optimized, degraded]);
 
   return (
-    <div className="relative h-48 overflow-hidden rounded-lg border bg-secondary/30">
+    <div
+      className={cn('relative h-48 overflow-hidden rounded-lg border bg-secondary/30', className)}
+    >
       <div ref={containerRef} className="h-full w-full" />
 
       <span className="pointer-events-none absolute top-1.5 left-2 rounded bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">

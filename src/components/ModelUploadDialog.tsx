@@ -3,12 +3,13 @@ import { Upload, FileBox, Info, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
-  DialogContent,
-  DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
+  GlassDialogBody,
+  GlassDialogContent,
+  GlassDialogFooter,
+  GlassDialogHeader,
+} from '@/components/ui/glass-dialog';
 import { Input } from '@/components/ui/input';
 import { isSupportedModelFile, IMPORT_ACCEPT } from '@/three/viewport';
 import { formatBytes } from '@/lib/utils';
@@ -103,16 +104,17 @@ export function ModelUploadDialog({
         onOpenChange(v);
       }}
     >
-      <DialogContent className="min-w-0 overflow-hidden sm:max-w-md">
-        <DialogHeader>
+      <GlassDialogContent size="sm">
+        <GlassDialogHeader>
           <DialogTitle>{replacing ? 'Modell austauschen' : 'Modell hinzufügen'}</DialogTitle>
           <DialogDescription>
             {replacing
               ? `Ersetzt die Datei von „${replacing}“. Name, Position, Rotation und Skalierung bleiben erhalten.`
               : 'Lade ein 3D-Modell als .glb hoch. Max. 100 MB.'}
           </DialogDescription>
-        </DialogHeader>
+        </GlassDialogHeader>
 
+        <GlassDialogBody className="space-y-4">
         {!file ? (
           <div
             className={`flex h-40 cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed transition-colors ${
@@ -181,8 +183,9 @@ export function ModelUploadDialog({
         )}
 
         {error && <p className="text-sm text-red-400">{error}</p>}
+        </GlassDialogBody>
 
-        <DialogFooter>
+        <GlassDialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Abbrechen
           </Button>
@@ -195,8 +198,8 @@ export function ModelUploadDialog({
           <Button disabled={!file || tooLargeToStore} onClick={handleSubmit}>
             {replacing ? 'Austauschen' : 'Hinzufügen'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </GlassDialogFooter>
+      </GlassDialogContent>
     </Dialog>
   );
 }
