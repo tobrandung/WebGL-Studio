@@ -132,6 +132,8 @@ export function EditorPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [transformModeState, setTransformModeState] = useState<TransformMode>('translate');
   const [showUploadDialog, setShowUploadDialog] = useState(false);
+  /** Model whose file the upload dialog is about to swap out. */
+  const [replaceModelId, setReplaceModelId] = useState<string | null>(null);
   const [showEnvDialog, setShowEnvDialog] = useState(false);
   const [showKeyframeEditor, setShowKeyframeEditor] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
@@ -829,6 +831,87 @@ export function EditorPage() {
       pushCommand(makeModelAddCommand(newModel, `"${newModel.name}" hinzufügen`));
     },
     [addModel, makeModelAddCommand, pushCommand],
+  );
+
+  /**
+   * Points a model at a different stored buffer: writes it into the model's own
+   * blob slot (the loader addresses blobs by model id), rebuilds the mesh in
+   * place and keeps the live transform. Used in both directions of a swap, so
+   * an undo restores the previous file exactly the same way.
+   *
+   * The record is updated last: the model-loading effect keys on `models` and
+   * skips ids already in the scene, so re-adding the mesh first keeps it from
+   * loading a second copy.
+   */
+  const applyModelSource = useCallback(
+    async (modelId: string, source: { blobId: string; fileName: string; fileSize: number }) => {
+      const ctx = viewportRef.current;
+      const db = await getDB();
+      const stored = await db.get('blobs', source.blobId);
+      if (!stored) return;
+      await db.put('blobs', { id: modelId, data: stored.data });
+
+      if (ctx) {
+        const group = ctx.models.get(modelId);
+        const transform = group ? readTransform(group) : null;
+        removeModel(ctx, modelId);
+        await loadModelFromBuffer(
+          ctx,
+          modelId,
+          stored.data,
+          source.fileName,
+          transform?.position,
+          transform?.rotation,
+          transform?.scale,
+        );
+        if (selectionRef.current.kind === 'model' && selectionRef.current.id === modelId) {
+          selectObject(ctx, modelId, 'model');
+          syncModelTransform(modelId);
+        }
+      }
+
+      await updateModel(modelId, { fileName: source.fileName, fileSize: source.fileSize });
+    },
+    [updateModel, syncModelTransform],
+  );
+
+  /**
+   * Swaps the file behind a model — the same asset with textures, or a
+   * compressed build — while its name, transform and outliner slot stay put.
+   * Both buffers are parked under throwaway blob ids so undo/redo can move
+   * either one back into place without carrying them in the history stack.
+   */
+  const handleReplaceModel = useCallback(
+    async (file: File) => {
+      const modelId = replaceModelId;
+      setReplaceModelId(null);
+      if (!modelId) return;
+
+      const entry = modelsRef.current.find((m) => m.id === modelId);
+      const db = await getDB();
+      const current = await db.get('blobs', modelId);
+      if (!entry || !current) return;
+
+      const previousId = generateId();
+      const nextId = generateId();
+      await db.put('blobs', { id: previousId, data: current.data });
+      await db.put('blobs', { id: nextId, data: await file.arrayBuffer() });
+
+      const previous = {
+        blobId: previousId,
+        fileName: entry.fileName,
+        fileSize: entry.fileSize,
+      };
+      const next = { blobId: nextId, fileName: file.name, fileSize: file.size };
+
+      runCommand({
+        type: 'model:replace',
+        label: `"${entry.name}" austauschen`,
+        execute: () => void applyModelSource(modelId, next),
+        undo: () => void applyModelSource(modelId, previous),
+      });
+    },
+    [replaceModelId, applyModelSource, runCommand],
   );
 
   /**
@@ -1555,6 +1638,7 @@ export function EditorPage() {
         onToggleVisibility={handleToggleVisibility}
         onRename={handleOutlinerRename}
         onDuplicate={handleOutlinerDuplicate}
+        onReplace={setReplaceModelId}
         onDelete={deleteModelWithHistory}
         onToggleLightVisibility={handleToggleLightVisibility}
         onRenameLight={handleRenameLight}
@@ -1623,6 +1707,14 @@ export function EditorPage() {
         />
       )}
       <ModelUploadDialog open={showUploadDialog} onOpenChange={setShowUploadDialog} onUpload={handleUpload} />
+      <ModelUploadDialog
+        open={replaceModelId !== null}
+        onOpenChange={(open) => {
+          if (!open) setReplaceModelId(null);
+        }}
+        onUpload={handleReplaceModel}
+        replacing={models.find((m) => m.id === replaceModelId)?.name ?? null}
+      />
       <EnvironmentUploadDialog
         open={showEnvDialog}
         onOpenChange={setShowEnvDialog}

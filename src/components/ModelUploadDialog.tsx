@@ -16,11 +16,22 @@ type ModelUploadDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUpload: (file: File) => void;
+  /**
+   * Name of the model whose file is being swapped out. Set it to switch the
+   * dialog from "add a model" to "replace this model's file"; the wording has
+   * to say so, since replacing keeps the transform and drops the old geometry.
+   */
+  replacing?: string | null;
 };
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
-export function ModelUploadDialog({ open, onOpenChange, onUpload }: ModelUploadDialogProps) {
+export function ModelUploadDialog({
+  open,
+  onOpenChange,
+  onUpload,
+  replacing,
+}: ModelUploadDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState('');
   const [dragOver, setDragOver] = useState(false);
@@ -71,9 +82,11 @@ export function ModelUploadDialog({ open, onOpenChange, onUpload }: ModelUploadD
     >
       <DialogContent className="min-w-0 overflow-hidden sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Modell hinzufügen</DialogTitle>
+          <DialogTitle>{replacing ? 'Modell austauschen' : 'Modell hinzufügen'}</DialogTitle>
           <DialogDescription>
-            Lade ein 3D-Modell hoch (.glb, .gltf, .fbx, .obj, .stl, .dae). Max. 100 MB.
+            {replacing
+              ? `Ersetzt die Datei von „${replacing}“. Name, Position, Rotation und Skalierung bleiben erhalten.`
+              : 'Lade ein 3D-Modell hoch (.glb, .gltf, .fbx, .obj, .stl, .dae). Max. 100 MB.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -131,7 +144,7 @@ export function ModelUploadDialog({ open, onOpenChange, onUpload }: ModelUploadD
             Abbrechen
           </Button>
           <Button disabled={!file} onClick={handleSubmit}>
-            Hinzufügen
+            {replacing ? 'Austauschen' : 'Hinzufügen'}
           </Button>
         </DialogFooter>
       </DialogContent>
