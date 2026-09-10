@@ -15,6 +15,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { estimateSize } from '../src/lib/optimize/estimate.ts';
 import {
   analyzeDocument,
   cleanDocument,
@@ -22,6 +23,7 @@ import {
   readDocument,
   writeDocument,
 } from '../src/lib/optimize/pipeline.ts';
+import { DEFAULT_SETTINGS } from '../src/lib/optimize/types.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -147,6 +149,20 @@ async function main(): Promise<void> {
     `\n  Texturen (in diesem Lauf unangetastet): ${mb(analysis.textureBytes)} → ${mb(after.textureBytes)}` +
       `\n  Geometrie:                              ${mb(analysis.geometryBytes)} → ${mb(after.geometryBytes)}` +
       ` (${(analysis.geometryBytes / Math.max(1, after.geometryBytes)).toFixed(1)}× kleiner)`,
+  );
+
+  // The texture pass needs a browser, so only the geometry half of the
+  // estimator can be checked here — which is the half with a real model
+  // behind it rather than a bits-per-pixel table.
+  const projected = estimateSize(analysis, { ...DEFAULT_SETTINGS, textureFormat: 'keep' });
+  const errorPercent =
+    (Math.abs(projected.geometryBytes - after.geometryBytes) / Math.max(1, after.geometryBytes)) *
+    100;
+  check(
+    'Geometrie-Schätzung innerhalb ±35 %',
+    errorPercent <= 35,
+    `geschätzt ${mb(projected.geometryBytes)}, gemessen ${mb(after.geometryBytes)} ` +
+      `(${errorPercent.toFixed(1)} % daneben)`,
   );
 
   console.log(failures === 0 ? '\n  alle Prüfungen bestanden\n' : `\n  ${failures} Fehler\n`);

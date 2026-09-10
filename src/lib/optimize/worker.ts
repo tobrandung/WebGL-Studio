@@ -13,12 +13,15 @@ import { loadDracoDecoder, loadDracoEncoder } from './draco.ts';
 import {
   analyzeDocument,
   cleanDocument,
+  jsonChunkBytes,
   readDocument,
   writeDocument,
 } from './pipeline.ts';
 import {
   captureTextureOriginals,
+  createTextureCache,
   runTexturePass,
+  type ResizedCanvasCache,
   type TextureOriginal,
 } from './texture-pass.ts';
 import type { OptimizeSettings, OptimizePhase, SourceAnalysis, SizeBreakdown } from './types.ts';
@@ -53,8 +56,17 @@ const PHASE_SPAN: Record<OptimizePhase, [number, number]> = {
 let document: Document | null = null;
 let originals: TextureOriginal[] = [];
 let analysis: SourceAnalysis | null = null;
-/** JSON chunk + container overhead, which the pipeline passes through. */
-let residualBytes = 0;
+let textureCache: ResizedCanvasCache = createTextureCache();
+
+/**
+ * What the last real `writeBinary()` produced, and under which geometry
+ * settings. Draco encodes during the write — not as a Document mutation — so
+ * a full write costs seconds on a large mesh. As long as the geometry
+ * settings have not moved, that measurement still holds and a texture-only
+ * change can be reported as `new texture bytes + this`. The error is the few
+ * bytes of JSON and padding that shift with the texture URIs, well under 1 %.
+ */
+let lastWrite: { draco: boolean; geometryBytes: number; residualBytes: number } | null = null;
 
 function post(message: OptimizeResponse, transfer?: Transferable[]): void {
   self.postMessage(message, { transfer });
@@ -76,13 +88,14 @@ async function open(id: number, buffer: ArrayBuffer): Promise<void> {
   const bytes = new Uint8Array(buffer);
   document = await readDocument(bytes, loadDracoDecoder);
   analysis = analyzeDocument(document, bytes);
-  residualBytes = analysis.residualBytes;
 
   report(id, 'clean', 0);
   await cleanDocument(document);
   // Captured after cleaning so dedup has already collapsed duplicate images —
   // the pass then never encodes the same picture twice.
   originals = captureTextureOriginals(document);
+  textureCache = createTextureCache();
+  lastWrite = null;
 
   post({ type: 'opened', id, analysis });
 }
@@ -91,21 +104,51 @@ async function run(id: number, settings: OptimizeSettings, wantBuffer: boolean):
   if (!document || !analysis) throw new Error('Kein Modell geöffnet');
 
   report(id, 'textures', 0);
-  const textures = await runTexturePass(document, originals, {
-    textureFormat: settings.textureFormat,
-    maxTextureSize: settings.maxTextureSize,
-    textureQuality: settings.textureQuality,
-    onProgress: (done, total) => report(id, 'textures', total ? done / total : 1),
-  });
+  const textures = await runTexturePass(
+    document,
+    originals,
+    {
+      textureFormat: settings.textureFormat,
+      maxTextureSize: settings.maxTextureSize,
+      textureQuality: settings.textureQuality,
+      onProgress: (done, total) => report(id, 'textures', total ? done / total : 1),
+    },
+    textureCache,
+  );
+
+  // Skip the write when only the textures moved and the caller just wants a
+  // number: re-serialising would re-run Draco over every primitive for a
+  // result we can already account for exactly.
+  const canReuseGeometry = !wantBuffer && lastWrite?.draco === settings.draco;
+  if (canReuseGeometry && lastWrite) {
+    report(id, 'write', 1);
+    post({
+      type: 'result',
+      id,
+      breakdown: {
+        total: textures.textureBytes + lastWrite.geometryBytes + lastWrite.residualBytes,
+        textureBytes: textures.textureBytes,
+        geometryBytes: lastWrite.geometryBytes,
+        residualBytes: lastWrite.residualBytes,
+        gpuBytes: textures.gpuBytes,
+        measured: true,
+      },
+    });
+    return;
+  }
 
   report(id, settings.draco ? 'geometry' : 'write', 0);
   const output = await writeDocument(document, settings, loadDracoEncoder);
   report(id, 'write', 1);
 
+  const residualBytes = jsonChunkBytes(output);
+  const geometryBytes = Math.max(0, output.byteLength - textures.textureBytes - residualBytes);
+  lastWrite = { draco: settings.draco, geometryBytes, residualBytes };
+
   const breakdown: SizeBreakdown = {
     total: output.byteLength,
     textureBytes: textures.textureBytes,
-    geometryBytes: Math.max(0, output.byteLength - textures.textureBytes - residualBytes),
+    geometryBytes,
     residualBytes,
     gpuBytes: textures.gpuBytes,
     measured: true,

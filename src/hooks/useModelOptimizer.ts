@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { OptimizeSession } from '@/lib/optimize/client';
+import { estimateSize } from '@/lib/optimize/estimate';
 import {
   DEFAULT_SETTINGS,
   type OptimizeProgress,
@@ -8,6 +9,13 @@ import {
   type SourceAnalysis,
 } from '@/lib/optimize/types';
 
+/**
+ * How long the settings have to sit still before the encoder is asked for a
+ * real number. Short enough that letting go of a slider feels immediate, long
+ * enough that dragging across it does not queue a run per step.
+ */
+const MEASURE_DEBOUNCE_MS = 600;
+
 export type OptimizerStatus = 'idle' | 'opening' | 'ready' | 'measuring' | 'finishing';
 
 export type ModelOptimizer = {
@@ -15,8 +23,11 @@ export type ModelOptimizer = {
   error: string;
   settings: OptimizeSettings;
   analysis: SourceAnalysis | null;
-  /** Result of the last completed run, or null before the first one. */
-  measured: SizeBreakdown | null;
+  /**
+   * Current projection. `measured: false` means it is calculated and still
+   * settling; the UI marks those with "≈".
+   */
+  size: SizeBreakdown | null;
   progress: OptimizeProgress | null;
   setSettings: (patch: Partial<OptimizeSettings>) => void;
   /** Runs once more and hands back the encoded GLB. */
@@ -114,17 +125,32 @@ export function useModelOptimizer(source: ArrayBuffer | null): ModelOptimizer {
       });
   }, []);
 
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    },
+    [],
+  );
+
   const setSettings = useCallback(
     (patch: Partial<OptimizeSettings>) => {
       const next = { ...settingsRef.current, ...patch };
       settingsRef.current = next;
       setSettingsState(next);
-      measure(next);
+      // Drop the stale measurement right away so the UI falls back to the
+      // estimate instead of showing a number for settings that no longer
+      // apply, then let the encoder catch up once the dragging stops.
+      setMeasured(null);
+      tokenRef.current++;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => measure(next), MEASURE_DEBOUNCE_MS);
     },
     [measure],
   );
 
-  // First measurement as soon as the document is open.
+  // First measurement as soon as the document is open — no debounce, the user
+  // has not touched anything yet.
   const openedRef = useRef(false);
   useEffect(() => {
     if (status === 'ready' && analysis && !openedRef.current) {
@@ -134,9 +160,19 @@ export function useModelOptimizer(source: ArrayBuffer | null): ModelOptimizer {
     if (!analysis) openedRef.current = false;
   }, [status, analysis, measure]);
 
+  /** Measured where available, calculated where not. */
+  const size = useMemo<SizeBreakdown | null>(() => {
+    if (measured) return measured;
+    if (!analysis) return null;
+    return estimateSize(analysis, settings);
+  }, [measured, analysis, settings]);
+
   const finish = useCallback(async (): Promise<ArrayBuffer | null> => {
     const session = sessionRef.current;
     if (!session?.isOpen) return null;
+
+    // A pending debounce would otherwise fire a second run behind this one.
+    if (debounceRef.current) clearTimeout(debounceRef.current);
 
     const token = ++tokenRef.current;
     setStatus('finishing');
@@ -167,5 +203,5 @@ export function useModelOptimizer(source: ArrayBuffer | null): ModelOptimizer {
     }
   }, []);
 
-  return { status, error, settings, analysis, measured, progress, setSettings, finish };
+  return { status, error, settings, analysis, size, progress, setSettings, finish };
 }

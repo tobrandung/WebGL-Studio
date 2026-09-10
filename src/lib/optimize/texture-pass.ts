@@ -17,18 +17,11 @@ import type { Document, Texture } from '@gltf-transform/core';
 import { EXTTextureWebP } from '@gltf-transform/extensions';
 import { listTextureSlots } from '@gltf-transform/functions';
 import { canvasToBlob } from '@/lib/hdri/decode-sdr';
+import { gpuBytesFor, readImageSize, targetSize } from './image-fit.ts';
 import { NORMAL_MAP_MIN_QUALITY, type OptimizeSettings } from './types.ts';
 
 /** Containers `createImageBitmap` can decode. KTX2/Basis is not one of them. */
 const DECODABLE = ['image/png', 'image/jpeg', 'image/webp'];
-
-/**
- * iOS Safari silently returns blank pixels above roughly 16.7 Mpx of canvas
- * area rather than throwing, so a 4096² texture sits exactly on the edge.
- * Staying below keeps the pass from producing invisible textures on iPads
- * with no error to go on.
- */
-const MAX_CANVAS_PIXELS = 16_000_000;
 
 type AnyCanvas = OffscreenCanvas | HTMLCanvasElement;
 
@@ -38,35 +31,6 @@ function createCanvas(width: number, height: number): AnyCanvas {
   canvas.width = width;
   canvas.height = height;
   return canvas;
-}
-
-function isPowerOfTwo(value: number): boolean {
-  return value > 0 && (value & (value - 1)) === 0;
-}
-
-/**
- * Target size for one texture: never upscale, always keep the aspect ratio,
- * and keep a power-of-two source power-of-two by halving rather than fitting.
- * NPOT is legal on WebGL2, but its mipmaps are more expensive and blurrier, so
- * a 2048² texture should land on 1024², not on some fitted odd number.
- */
-export function targetSize(width: number, height: number, max: number): [number, number] {
-  if (width <= max && height <= max && width * height <= MAX_CANVAS_PIXELS) {
-    return [width, height];
-  }
-
-  if (isPowerOfTwo(width) && isPowerOfTwo(height)) {
-    let w = width;
-    let h = height;
-    while ((w > max || h > max || w * h > MAX_CANVAS_PIXELS) && w > 1 && h > 1) {
-      w /= 2;
-      h /= 2;
-    }
-    return [w, h];
-  }
-
-  const scale = Math.min(max / width, max / height, Math.sqrt(MAX_CANVAS_PIXELS / (width * height)));
-  return [Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale))];
 }
 
 /**
@@ -117,10 +81,56 @@ export type TexturePassResult = {
   skipped: { name: string; reason: string }[];
 };
 
-async function encodeTexture(
+/**
+ * Keeps the decoded-and-resized canvas for each texture, so moving the
+ * quality slider costs one `convertToBlob` per texture instead of a full
+ * decode and redraw. That is the difference between a slider that responds
+ * and one that stutters.
+ *
+ * Capped by backing-store bytes rather than entry count, because a 2048²
+ * canvas is 16 MB and a 512² one is 1 MB — an entry count would either starve
+ * the small case or blow up memory in the large one. Least-recently-used
+ * entries are dropped first.
+ */
+const CANVAS_CACHE_BYTES = 48 * 1024 * 1024;
+
+class ResizedCanvasCache {
+  private entries = new Map<string, { canvas: AnyCanvas; bytes: number }>();
+  private total = 0;
+
+  get(key: string): AnyCanvas | undefined {
+    const entry = this.entries.get(key);
+    if (!entry) return undefined;
+    // Re-insert so Map iteration order stays least-recently-used first.
+    this.entries.delete(key);
+    this.entries.set(key, entry);
+    return entry.canvas;
+  }
+
+  set(key: string, canvas: AnyCanvas): void {
+    const bytes = canvas.width * canvas.height * 4;
+    if (bytes > CANVAS_CACHE_BYTES) return;
+    this.entries.set(key, { canvas, bytes });
+    this.total += bytes;
+    for (const [oldest, entry] of this.entries) {
+      if (this.total <= CANVAS_CACHE_BYTES) break;
+      if (oldest === key) continue;
+      this.entries.delete(oldest);
+      this.total -= entry.bytes;
+    }
+  }
+
+  clear(): void {
+    this.entries.clear();
+    this.total = 0;
+  }
+}
+
+async function resizedCanvas(
   original: TextureOriginal,
-  options: TexturePassOptions,
-): Promise<{ image: Uint8Array; mimeType: string; width: number; height: number } | null> {
+  width: number,
+  height: number,
+): Promise<AnyCanvas> {
   const blob = new Blob([original.image as BlobPart], { type: original.mimeType });
   // Both flags matter and both default the wrong way for texture data:
   // premultiplication folds alpha into RGB (ruining packed and cut-out maps)
@@ -132,11 +142,6 @@ async function encodeTexture(
   });
 
   try {
-    const [width, height] = targetSize(bitmap.width, bitmap.height, options.maxTextureSize);
-    const targetMime = options.textureFormat === 'webp' ? 'image/webp' : original.mimeType;
-    const sameSize = width === bitmap.width && height === bitmap.height;
-    if (sameSize && targetMime === original.mimeType) return null;
-
     const canvas = createCanvas(width, height);
     const context = canvas.getContext('2d', { colorSpace: 'srgb' }) as
       | OffscreenCanvasRenderingContext2D
@@ -146,27 +151,58 @@ async function encodeTexture(
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
     context.drawImage(bitmap, 0, 0, width, height);
-
-    const quality = qualityForSlots(original.slots, options.textureQuality);
-    const encoded = await canvasToBlob(canvas, targetMime, quality);
-    const image = new Uint8Array(await encoded.arrayBuffer());
-
-    // A flat or already-small image can come out bigger than it went in.
-    // Growing a file during "optimise" is never the right answer.
-    if (image.byteLength >= original.image.byteLength && targetMime === original.mimeType) {
-      return null;
-    }
-
-    return { image, mimeType: targetMime, width, height };
+    return canvas;
   } finally {
     bitmap.close();
   }
 }
 
-/** Decoded RGBA bytes a texture occupies on the GPU, mipmaps included. */
-function gpuBytesFor(width: number, height: number): number {
-  return Math.round(width * height * 4 * (4 / 3));
+/** Header-only size read, so choosing a target never costs a decode. */
+function sourceSize(original: TextureOriginal): [number, number] | null {
+  return readImageSize(original.image, original.mimeType);
 }
+
+async function encodeTexture(
+  original: TextureOriginal,
+  index: number,
+  options: TexturePassOptions,
+  cache: ResizedCanvasCache,
+): Promise<{ image: Uint8Array; mimeType: string; width: number; height: number } | null> {
+  const source = sourceSize(original);
+  const targetMime = options.textureFormat === 'webp' ? 'image/webp' : original.mimeType;
+
+  const [width, height] = source
+    ? targetSize(source[0], source[1], options.maxTextureSize)
+    : [0, 0];
+  const sameSize = !source || (width === source[0] && height === source[1]);
+  if (sameSize && targetMime === original.mimeType) return null;
+
+  const key = `${index}:${width}x${height}`;
+  let canvas = cache.get(key);
+  if (!canvas) {
+    canvas = await resizedCanvas(original, width, height);
+    cache.set(key, canvas);
+  }
+
+  const quality = qualityForSlots(original.slots, options.textureQuality);
+  const encoded = await canvasToBlob(canvas, targetMime, quality);
+  const image = new Uint8Array(await encoded.arrayBuffer());
+
+  // A flat or already-small image can come out bigger than it went in.
+  // Growing a file during "optimise" is never the right answer.
+  if (image.byteLength >= original.image.byteLength && targetMime === original.mimeType) {
+    return null;
+  }
+
+  return { image, mimeType: targetMime, width, height };
+}
+
+/** Reusable across runs, so the cache survives a settings change. */
+export function createTextureCache(): ResizedCanvasCache {
+  return new ResizedCanvasCache();
+}
+
+export type { ResizedCanvasCache };
 
 /**
  * Rewrites every decodable texture in place, always starting from `originals`.
@@ -176,6 +212,7 @@ export async function runTexturePass(
   document: Document,
   originals: TextureOriginal[],
   options: TexturePassOptions,
+  cache: ResizedCanvasCache = new ResizedCanvasCache(),
 ): Promise<TexturePassResult> {
   const textures = document.getRoot().listTextures();
   const skipped: TexturePassResult['skipped'] = [];
@@ -193,7 +230,7 @@ export async function runTexturePass(
       restore(texture, original);
     } else {
       try {
-        const encoded = await encodeTexture(original, options);
+        const encoded = await encodeTexture(original, index, options, cache);
         if (encoded) {
           texture.setImage(encoded.image).setMimeType(encoded.mimeType);
           const uri = texture.getURI();
@@ -255,42 +292,3 @@ function gpuBytesFromImage(original: TextureOriginal): number {
   return size ? gpuBytesFor(size[0], size[1]) : 0;
 }
 
-/** Minimal PNG/JPEG/WebP header parse — dimensions only. */
-export function readImageSize(bytes: Uint8Array, mimeType: string): [number, number] | null {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  try {
-    if (mimeType === 'image/png') {
-      return [view.getUint32(16, false), view.getUint32(20, false)];
-    }
-    if (mimeType === 'image/jpeg') {
-      let offset = 2;
-      while (offset < bytes.byteLength) {
-        if (view.getUint8(offset) !== 0xff) break;
-        const marker = view.getUint8(offset + 1);
-        const length = view.getUint16(offset + 2, false);
-        // SOF0-SOF15, excluding the DHT/DAC/RST markers in that range.
-        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-          return [view.getUint16(offset + 7, false), view.getUint16(offset + 5, false)];
-        }
-        offset += 2 + length;
-      }
-      return null;
-    }
-    if (mimeType === 'image/webp') {
-      // VP8X carries the canvas size as two 24-bit values, minus one.
-      const chunk = String.fromCharCode(...bytes.subarray(12, 16));
-      if (chunk === 'VP8X') {
-        const w = (view.getUint8(24) | (view.getUint8(25) << 8) | (view.getUint8(26) << 16)) + 1;
-        const h = (view.getUint8(27) | (view.getUint8(28) << 8) | (view.getUint8(29) << 16)) + 1;
-        return [w, h];
-      }
-      if (chunk === 'VP8 ') {
-        return [view.getUint16(26, true) & 0x3fff, view.getUint16(28, true) & 0x3fff];
-      }
-      return null;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}

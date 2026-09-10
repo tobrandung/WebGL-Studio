@@ -63,7 +63,7 @@ export async function readDocument(
  * 12-byte file header, then each chunk is a 4-byte length + 4-byte type. The
  * JSON chunk is always first.
  */
-function jsonChunkBytes(bytes: Uint8Array): number {
+export function jsonChunkBytes(bytes: Uint8Array): number {
   if (bytes.byteLength < 20) return 0;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (view.getUint32(0, true) !== 0x46546c67) return 0; // 'glTF'

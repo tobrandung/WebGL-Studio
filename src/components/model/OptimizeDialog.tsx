@@ -39,11 +39,14 @@ function BreakdownRow({
   label,
   before,
   after,
+  estimated,
   hint,
 }: {
   label: string;
   before: number;
   after?: number;
+  /** Marks the "after" value as calculated rather than encoded. */
+  estimated?: boolean;
   hint?: React.ReactNode;
 }) {
   return (
@@ -57,7 +60,10 @@ function BreakdownRow({
         {after !== undefined && (
           <>
             <span className="mx-1 text-muted-foreground">→</span>
-            <span>{formatBytes(after)}</span>
+            <span className={estimated ? 'text-muted-foreground' : undefined}>
+              {estimated ? '≈ ' : ''}
+              {formatBytes(after)}
+            </span>
           </>
         )}
       </span>
@@ -80,11 +86,12 @@ export function OptimizeDialog({
   }, [open, source]);
 
   const optimizer = useModelOptimizer(active);
-  const { analysis, measured, settings, setSettings, status, error, progress } = optimizer;
+  const { analysis, size, settings, setSettings, status, error, progress } = optimizer;
 
   const busy = status === 'opening' || status === 'measuring' || status === 'finishing';
+  const estimated = size ? !size.measured : false;
   const sourceBytes = analysis?.fileSize ?? 0;
-  const resultBytes = measured?.total;
+  const resultBytes = size?.total;
 
   const handleConfirm = async () => {
     const buffer = await optimizer.finish();
@@ -208,13 +215,17 @@ export function OptimizeDialog({
                 <span className="text-sm">
                   <span className="text-muted-foreground">{formatBytes(sourceBytes)}</span>
                   <span className="mx-1.5 text-muted-foreground">→</span>
-                  <span className="font-medium">
-                    {resultBytes !== undefined ? formatBytes(resultBytes) : '–'}
+                  <span className={estimated ? 'font-medium text-muted-foreground' : 'font-medium'}>
+                    {resultBytes !== undefined
+                      ? `${estimated ? '≈ ' : ''}${formatBytes(resultBytes)}`
+                      : '–'}
                   </span>
                 </span>
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {/* Spinner while the encoder catches up, so a number that
+                      has not settled yet never reads as final. */}
                   {busy && <Loader2 className="h-3 w-3 animate-spin" />}
-                  {resultBytes !== undefined && !busy && `−${formatSaving(resultBytes, sourceBytes)}`}
+                  {resultBytes !== undefined && `−${formatSaving(resultBytes, sourceBytes)}`}
                 </span>
               </div>
 
@@ -229,17 +240,20 @@ export function OptimizeDialog({
                 <BreakdownRow
                   label="Texturen"
                   before={analysis.textureBytes}
-                  after={measured?.textureBytes}
+                  after={size?.textureBytes}
+                  estimated={estimated}
                 />
                 <BreakdownRow
                   label="Geometrie"
                   before={analysis.geometryBytes}
-                  after={measured?.geometryBytes}
+                  after={size?.geometryBytes}
+                  estimated={estimated}
                 />
                 <BreakdownRow
                   label="GPU-Speicher"
                   before={analysis.gpuBytes}
-                  after={measured?.gpuBytes}
+                  after={size?.gpuBytes}
+                  estimated={estimated}
                   hint={
                     <InfoHint label="GPU-Speicher">
                       Was die Texturen entpackt auf der Grafikkarte belegen. Nur die maximale
@@ -267,7 +281,9 @@ export function OptimizeDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Abbrechen
           </Button>
-          <Button disabled={busy || !measured} onClick={handleConfirm}>
+          {/* Enabled as soon as the document is open: confirming runs a final
+              encode anyway, so there is no reason to wait for a measurement. */}
+          <Button disabled={busy || !analysis} onClick={handleConfirm}>
             {status === 'finishing' ? (
               <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
             ) : (
