@@ -3,10 +3,6 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
-import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { STLLoader } from 'three/addons/loaders/STLLoader.js';
-import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 import {
   syncLights,
   applyEnvironment,
@@ -47,16 +43,13 @@ export type ViewportContext = {
 export type TransformMode = 'translate' | 'rotate' | 'scale';
 
 /**
- * Formats accepted on import. Deliberately limited to the two containers that
- * can carry their textures inside the file: .glb (always) and binary .fbx (when
- * exported with "Embed Textures"). Everything else — .gltf, .obj, .stl, .dae —
- * references textures by external path, which we cannot resolve from a single
- * uploaded file, so the model would arrive untextured.
- *
- * The loader in `loadModelFromBuffer` still understands the older formats so
- * that models imported before this restriction keep working.
+ * The one format we accept. GLB is a single binary container that carries its
+ * textures inside the file, and it is the only format the planned compression
+ * step can even express: Draco geometry and KTX2/Basis textures are both glTF
+ * extensions. Keeping the editor, the preview, the exported widget and that
+ * pipeline on one format means one code path and one thing to test.
  */
-export const IMPORT_EXTENSIONS = ['.glb', '.fbx'] as const;
+export const IMPORT_EXTENSIONS = ['.glb'] as const;
 export const IMPORT_ACCEPT = IMPORT_EXTENSIONS.join(',');
 
 const MATERIAL_TEXTURE_KEYS = [
@@ -259,57 +252,29 @@ export async function loadModelFromBuffer(
   rotation: [number, number, number] = [0, 0, 0],
   scale: [number, number, number] = [1, 1, 1],
 ): Promise<THREE.Group> {
-  const ext = fileName.toLowerCase().slice(fileName.lastIndexOf('.'));
-  let object: THREE.Object3D;
+  if (!isSupportedModelFile(fileName)) {
+    throw new Error(`Unsupported format: ${fileName}`);
+  }
 
-  switch (ext) {
-    case '.glb':
-    case '.gltf': {
-      const loader = new GLTFLoader();
-      const dracoLoader = new DRACOLoader();
-      dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
-      loader.setDRACOLoader(dracoLoader);
-      // Lazily imported: only needed for GLBs authored with KTX2/Basis-compressed
-      // textures, so users who never touch that pay nothing for it.
-      const { KTX2Loader } = await import('three/addons/loaders/KTX2Loader.js');
-      const ktx2Loader = new KTX2Loader();
-      ktx2Loader.setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/libs/basis/');
-      ktx2Loader.detectSupport(ctx.renderer);
-      loader.setKTX2Loader(ktx2Loader);
-      const gltf = await loader.parseAsync(buffer, '');
-      object = gltf.scene;
-      dracoLoader.dispose();
-      ktx2Loader.dispose();
-      break;
-    }
-    case '.fbx': {
-      const loader = new FBXLoader();
-      object = loader.parse(buffer, '');
-      break;
-    }
-    case '.obj': {
-      const loader = new OBJLoader();
-      const text = new TextDecoder().decode(buffer);
-      object = loader.parse(text);
-      break;
-    }
-    case '.stl': {
-      const loader = new STLLoader();
-      const geometry = loader.parse(buffer);
-      const material = new THREE.MeshStandardMaterial({ color: 0x808080 });
-      object = new THREE.Mesh(geometry, material);
-      break;
-    }
-    case '.dae': {
-      const loader = new ColladaLoader();
-      const text = new TextDecoder().decode(buffer);
-      const collada = loader.parse(text, '');
-      if (!collada) throw new Error('Failed to parse Collada file');
-      object = collada.scene;
-      break;
-    }
-    default:
-      throw new Error(`Unsupported format: ${ext}`);
+  const loader = new GLTFLoader();
+  const dracoLoader = new DRACOLoader();
+  dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+  loader.setDRACOLoader(dracoLoader);
+  // Lazily imported: only needed for GLBs authored with KTX2/Basis-compressed
+  // textures, so users who never touch that pay nothing for it.
+  const { KTX2Loader } = await import('three/addons/loaders/KTX2Loader.js');
+  const ktx2Loader = new KTX2Loader();
+  ktx2Loader.setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/libs/basis/');
+  ktx2Loader.detectSupport(ctx.renderer);
+  loader.setKTX2Loader(ktx2Loader);
+
+  let object: THREE.Object3D;
+  try {
+    const gltf = await loader.parseAsync(buffer, '');
+    object = gltf.scene;
+  } finally {
+    dracoLoader.dispose();
+    ktx2Loader.dispose();
   }
 
   const wrapper = new THREE.Group();

@@ -40,7 +40,7 @@ export function ModelUploadDialog({
   const handleFile = useCallback((f: File) => {
     setError('');
     if (!isSupportedModelFile(f.name)) {
-      setError('Nicht unterstütztes Format. Erlaubt sind nur .glb und .fbx.');
+      setError('Nicht unterstütztes Format. Erlaubt ist nur .glb.');
       return;
     }
     if (f.size > MAX_FILE_SIZE) {
@@ -86,7 +86,7 @@ export function ModelUploadDialog({
           <DialogDescription>
             {replacing
               ? `Ersetzt die Datei von „${replacing}“. Name, Position, Rotation und Skalierung bleiben erhalten.`
-              : 'Lade ein 3D-Modell hoch (.glb oder .fbx). Max. 100 MB.'}
+              : 'Lade ein 3D-Modell als .glb hoch. Max. 100 MB.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -109,7 +109,7 @@ export function ModelUploadDialog({
           >
             <Upload className="h-8 w-8 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">Datei hierher ziehen oder klicken</p>
-            <p className="text-xs text-muted-foreground">Nur .glb oder .fbx</p>
+            <p className="text-xs text-muted-foreground">Nur .glb</p>
             <Input
               ref={inputRef}
               type="file"
@@ -144,17 +144,11 @@ export function ModelUploadDialog({
             <p className="font-medium text-foreground">
               Bitte mit Material und Texturen exportieren.
             </p>
-            <ul className="mt-1 space-y-1">
-              <li>
-                <span className="font-medium">.glb</span> — Texturen liegen immer in der Datei. Der
-                Standardweg.
-              </li>
-              <li>
-                <span className="font-medium">.fbx</span> — nur binäres FBX mit aktivem „Embed
-                Textures“ beim Export. Ohne diese Option verweist die Datei auf externe Pfade und
-                das Modell kommt ohne Texturen an.
-              </li>
-            </ul>
+            <p className="mt-1">
+              GLB legt die Texturen als Chunks in die Datei — sie kommen also mit, solange der
+              Export Materialien einschließt. Aus FBX, OBJ oder Collada vorher ein GLB machen
+              (Blender: Import, dann „glTF 2.0 (.glb)“ exportieren).
+            </p>
           </div>
         </div>
 

@@ -123,7 +123,10 @@ export function PreviewPage() {
             wrapper.rotation.set(...model.rotation);
             wrapper.scale.set(...model.scale);
             scene.add(wrapper);
-          } catch { /* skip unsupported formats in preview */ }
+          } catch (err) {
+            // One unreadable model must not blank the whole preview.
+            console.error('[Preview] Modell konnte nicht geladen werden:', model.name, err);
+          }
         }),
       );
       dracoLoader.dispose();
