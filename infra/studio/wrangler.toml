@@ -27,8 +27,8 @@ CDN_BASE = "https://web3d-cdn.brandung-3d.workers.dev"
 # From Zero Trust → Access → Applications → your app → Application Audience tag,
 # and your team domain (e.g. brandung.cloudflareaccess.com). Both must be set in
 # production: their absence is what enables the local DEV_IDENTITY bypass.
-ACCESS_TEAM_DOMAIN = "CHANGEME.cloudflareaccess.com"
-ACCESS_AUD = "CHANGEME"
+ACCESS_TEAM_DOMAIN = "brandung-3d.cloudflareaccess.com"
+ACCESS_AUD = "abe67823754ebaf844e3269226774b252d2e29c1e8ced85285fe59f373e1ea85"
 
 # Secrets, set with `wrangler secret put <name>`:
 #   R2_ACCOUNT_ID
