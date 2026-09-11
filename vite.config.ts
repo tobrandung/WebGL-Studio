@@ -5,6 +5,17 @@ import { resolve } from 'path';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  server: {
+    proxy: {
+      // The studio Worker serves the SPA and /api from one origin in
+      // production. Proxying here reproduces that in dev, so the client can
+      // always use a relative /api path and never needs a CORS story.
+      // Requires `npx wrangler dev` in infra/studio (default port 8787).
+      '/api': {
+        target: 'http://127.0.0.1:8787',
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),

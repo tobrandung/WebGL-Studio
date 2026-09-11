@@ -30,13 +30,18 @@ import {
   GlassDialogHeader,
 } from '@/components/ui/glass-dialog';
 import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getDB, environmentFormat, type Project, type ModelEntry } from '@/lib/db';
+import type { EnvironmentFormat } from '@/lib/hdri/types';
 import { ENVIRONMENT_FORMAT_LABEL, extensionForFormat } from '@/lib/hdri/format';
+import { uploadAsset, lookupAsset } from '@/lib/storage/client';
+import { ApiError } from '@/lib/storage/api';
+import { isHostingConfigured } from '@/lib/storage/config';
+import { MAX_UPLOAD_BYTES } from '@/lib/storage/asset-key';
+import { widgetScriptUrl, widgetRelease } from '@/lib/storage/widget-release';
 import { cn, slugify, formatBytes } from '@/lib/utils';
 import { InfoHint } from '@/components/ui/info-hint';
 import { Notice } from '@/components/ui/notice';
@@ -78,11 +83,24 @@ const RESOLUTION_PRESETS: ResolutionPreset[] = [
 
 const DEFAULT_RESOLUTION_ID = 'fhd';
 
-// GitHub-Token wird lokal im Browser gespeichert, damit er nicht bei jedem
-// Export neu eingegeben werden muss. Hinweis: localStorage ist bei XSS lesbar –
-// bewusster Komfort-Kompromiss auf Wunsch. Nur Fine-grained-Token mit minimalem
-// Scope verwenden.
-const TOKEN_STORAGE_KEY = 'web3d-export-gh-token';
+/**
+ * Content type per environment format. Derived from the format rather than the
+ * stored file name for the same reason `envFileName` is: an Ultra HDR file is a
+ * `.jpg` whose decoder cannot be guessed from the extension alone.
+ */
+const ENV_CONTENT_TYPE: Record<EnvironmentFormat, string> = {
+  hdr: 'image/vnd.radiance',
+  exr: 'image/x-exr',
+  ultrahdr: 'image/jpeg',
+  sdr: 'image/webp',
+};
+
+/** One row of the upload log, so the UI can style outcomes rather than parse text. */
+type UploadRow = {
+  label: string;
+  state: 'uploaded' | 'skipped' | 'failed';
+  detail?: string;
+};
 
 /** Kompakter, dateisystemsicherer Zeitstempel wie 20260713-134500. */
 function formatStamp(ts: number): string {
@@ -113,96 +131,31 @@ function fileExtension(fileName: string): string {
   return idx >= 0 ? fileName.slice(idx + 1).toLowerCase() : 'glb';
 }
 
-/** Encodes an ArrayBuffer to base64 in chunks to avoid call-stack limits. */
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  const chunk = 0x8000;
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
-async function githubErrorMessage(res: Response): Promise<string> {
-  try {
-    const json = (await res.json()) as { message?: string };
-    return json.message ?? res.statusText;
-  } catch {
-    return res.statusText;
-  }
-}
-
-/**
- * Creates or updates a single file in a GitHub repo via the Contents API.
- * Fetches the existing blob sha first so updates don't fail with 409/422.
- * Returns the resulting commit SHA so callers can pin immutable CDN URLs.
- */
-async function putFileToGitHub(params: {
-  owner: string;
-  repo: string;
-  branch: string;
-  path: string;
-  data: ArrayBuffer;
-  token: string;
-  message: string;
-}): Promise<string | undefined> {
-  const { owner, repo, branch, path, data, token, message } = params;
-  const encodedPath = path
-    .split('/')
-    .map((segment) => encodeURIComponent(segment))
-    .join('/');
-  const api = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}`;
-  const headers: HeadersInit = {
-    Authorization: `Bearer ${token}`,
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  };
-
-  let sha: string | undefined;
-  const getRes = await fetch(`${api}?ref=${encodeURIComponent(branch)}`, { headers });
-  if (getRes.ok) {
-    const json = (await getRes.json()) as { sha?: string };
-    sha = json.sha;
-  } else if (getRes.status !== 404) {
-    throw new Error(`GET ${path}: ${getRes.status} – ${await githubErrorMessage(getRes)}`);
-  }
-
-  const putRes = await fetch(api, {
-    method: 'PUT',
-    headers,
-    body: JSON.stringify({ message, content: arrayBufferToBase64(data), branch, sha }),
-  });
-  if (!putRes.ok) {
-    throw new Error(`PUT ${path}: ${putRes.status} – ${await githubErrorMessage(putRes)}`);
-  }
-  const putJson = (await putRes.json()) as { commit?: { sha?: string } };
-  return putJson.commit?.sha;
-}
-
 export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps) {
   const [exportMode, setExportMode] = useState<ExportMode>('scroll');
   const [transparent, setTransparent] = useState(true);
   const [resolutionId, setResolutionId] = useState(DEFAULT_RESOLUTION_ID);
   const [copied, setCopied] = useState(false);
-  const [owner, setOwner] = useState('tobrandung');
-  const [repo, setRepo] = useState('webGL-test');
-  const [branch, setBranch] = useState('main');
   const [models, setModels] = useState<ModelEntry[]>([]);
   const [savingFolder, setSavingFolder] = useState(false);
   const [folderStatus, setFolderStatus] = useState<string | null>(null);
   const [includeEnv, setIncludeEnv] = useState(true);
   const [envBytes, setEnvBytes] = useState(0);
   const [envFolderStatus, setEnvFolderStatus] = useState<string | null>(null);
-  const [token, setToken] = useState(() =>
-    typeof window !== 'undefined' ? (localStorage.getItem(TOKEN_STORAGE_KEY) ?? '') : '',
-  );
   const [uploading, setUploading] = useState(false);
-  const [uploadLog, setUploadLog] = useState<string[]>([]);
+  const [uploadLog, setUploadLog] = useState<UploadRow[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  // Commit SHA of the most recent GitHub upload. When set, embed URLs are pinned
-  // to it (immutable → jsDelivr serves fresh content without cache purge).
-  const [deployedSha, setDeployedSha] = useState<string | null>(null);
+  /**
+   * Public CDN URL per asset, keyed by model id or environment blob id. Filled
+   * on open for anything already published and on every successful upload; the
+   * embed code is generated from it, so an unpublished project cannot produce a
+   * snippet full of dead URLs.
+   */
+  const [assetUrls, setAssetUrls] = useState<Record<string, string>>({});
+  /** Current file and its byte progress, for the upload bar. */
+  const [progress, setProgress] = useState<{ label: string; loaded: number; total: number } | null>(
+    null,
+  );
   const [activeTab, setActiveTab] = useState<ExportTab>('display');
   /** 1 = nach rechts, -1 = nach links – steuert die Slide-Richtung des Contents. */
   const [tabSlideDir, setTabSlideDir] = useState(1);
@@ -233,18 +186,53 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
     })();
   }, [open, project]);
 
-  // Any change to the repo target or project invalidates a previously pinned
-  // commit, so fall back to the branch until the user re-uploads.
+  // A fresh open starts from an empty log; the URLs are re-resolved below.
   useEffect(() => {
-    setDeployedSha(null);
-  }, [owner, repo, branch, open, project]);
+    if (open) return;
+    setUploadLog([]);
+    setUploadError(null);
+    setAssetUrls({});
+    setProgress(null);
+  }, [open]);
 
-  // Token lokal spiegeln, damit er beim nächsten Export wieder vorausgefüllt ist.
+  /**
+   * Resolves which assets are already on the CDN.
+   *
+   * Content-addressed keys make this worth doing: an asset published in an
+   * earlier session — or from a colleague's machine — is still there, so the
+   * embed code can be copied straight away without pressing upload again. One
+   * small request per asset, no bytes transferred.
+   */
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (token) localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    else localStorage.removeItem(TOKEN_STORAGE_KEY);
-  }, [token]);
+    if (!open || !project || !isHostingConfigured()) return;
+    const keyed: Array<{ id: string; key: string }> = models
+      .filter((m): m is ModelEntry & { assetKey: string } => Boolean(m.assetKey))
+      .map((m) => ({ id: m.id, key: m.assetKey }));
+    const env = project.environment;
+    if (env?.assetKey) keyed.push({ id: env.blobId, key: env.assetKey });
+    if (!keyed.length) return;
+
+    let cancelled = false;
+    (async () => {
+      const found: Record<string, string> = {};
+      for (const { id, key } of keyed) {
+        try {
+          const result = await lookupAsset(key);
+          if (result.exists) found[id] = result.publicUrl;
+        } catch {
+          // Hosting unreachable or session expired: leave the asset pending.
+          // Pressing upload surfaces the real error with a proper message.
+          return;
+        }
+      }
+      if (!cancelled && Object.keys(found).length) {
+        setAssetUrls((prev) => ({ ...found, ...prev }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, project, models]);
 
   // Beim Schließen Höhe zurücksetzen, damit der nächste Open frisch misst.
   useEffect(() => {
@@ -311,7 +299,7 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
     };
     // panelHeight absichtlich nicht in deps – sonst Endlosschleife.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- height sync on tab/content change only
-  }, [open, activeTab, exportMode, resolutionId, transparent, includeEnv, models, project?.environment, uploading, uploadLog, uploadError, folderStatus, envFolderStatus, deployedSha, owner, repo, branch, copied, envBytes]);
+  }, [open, activeTab, exportMode, resolutionId, transparent, includeEnv, models, project?.environment, uploading, uploadLog, uploadError, folderStatus, envFolderStatus, assetUrls, progress, copied, envBytes]);
 
   // Sliding Pill unter dem aktiven Tab.
   useLayoutEffect(() => {
@@ -339,39 +327,40 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
   }, [activeTab]);
 
   const projectSlug = project ? slugify(project.name) : '';
-  // Pin to the uploaded commit when available; otherwise track the branch.
-  const ref = deployedSha ?? branch;
-  const baseUrl = `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${ref}`;
-  const rawBaseUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${ref}`;
-  // A commit-pinned script URL is immutable, so the cache-busting query is only
-  // needed for the mutable @branch fallback.
-  const scriptUrl = `${baseUrl}/dist-widget/web3d-widget.iife.js${deployedSha ? '' : '?v=2'}`;
+  const scriptUrl = widgetScriptUrl();
   // Sprechender, dateisystem- und URL-sicherer Name: Modellname (slugifiziert,
-  // gekürzt) + Erstell-Zeitstempel für Eindeutigkeit. Ersetzt die lange UUID.
+  // gekürzt) + Erstell-Zeitstempel für Eindeutigkeit. Nur noch Anzeige- und
+  // Download-Name — die CDN-URL wird über den Content-Hash gebildet.
   const modelFileName = (m: ModelEntry) =>
     `${slugify(m.name).slice(0, 40)}-${formatStamp(m.createdAt)}.${fileExtension(m.fileName)}`;
-  // jsDelivr refuses GitHub files larger than 20 MiB (HTTP 403). Fall back to
-  // raw.githubusercontent.com (CORS-enabled, 100 MB limit) for oversized assets.
-  const JSDELIVR_MAX_BYTES = 20 * 1024 * 1024;
-  const assetUrl = (repoPath: string, sizeBytes: number) =>
-    sizeBytes > JSDELIVR_MAX_BYTES ? `${rawBaseUrl}/${repoPath}` : `${baseUrl}/${repoPath}`;
-  const modelPath = (m: ModelEntry) =>
-    assetUrl(`dist-widget/models/${projectSlug}/${modelFileName(m)}`, m.fileSize);
   const environment = project?.environment ?? null;
   const envFormat = environment ? environmentFormat(environment) : null;
   // Derive the extension from the format, not from the stored name: an Ultra HDR
   // file must keep its `.uhdr.jpg` marker so a widget that only sees the URL
   // still picks the right decoder.
   const envFileName = environment && envFormat ? `${environment.blobId}${extensionForFormat(envFormat)}` : '';
-  const envPath = assetUrl(`dist-widget/env/${projectSlug}/${envFileName}`, envBytes);
-  const envOversized = Boolean(environment) && envBytes > JSDELIVR_MAX_BYTES;
-  const oversizedModels = models.filter((m) => m.fileSize > JSDELIVR_MAX_BYTES);
+  const envUrl = environment ? assetUrls[environment.blobId] : undefined;
+
+  // Which assets still have to be published before a snippet can be generated.
+  const pendingModels = models.filter((m) => !assetUrls[m.id]);
+  const envPending = Boolean(environment && includeEnv && !envUrl);
+  const oversized = [
+    ...models.filter((m) => m.fileSize > MAX_UPLOAD_BYTES).map((m) => m.name),
+    ...(environment && includeEnv && envBytes > MAX_UPLOAD_BYTES ? [environment.fileName] : []),
+  ];
+  const hostingOn = isHostingConfigured();
+  const canUpload = hostingOn && !oversized.length && (models.length > 0 || Boolean(environment && includeEnv));
+  const embedReady =
+    models.length > 0 && pendingModels.length === 0 && !envPending && Boolean(scriptUrl);
 
   const getEmbedCode = useCallback(() => {
     if (!project) return '';
+    if (!embedReady) {
+      return '// Erst im Tab „Hosting" hochladen – danach steht hier der Embed-Code.';
+    }
 
     const mappedModels = models.map((m) => ({
-      url: modelPath(m),
+      url: assetUrls[m.id],
       position: m.position,
       rotation: m.rotation,
       scale: m.scale,
@@ -393,7 +382,7 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
       config.maxResolution = maxResolution;
     }
 
-    // Rückwärtskompatibel: ältere Widget-Builds auf jsDelivr lesen nur modelUrl.
+    // Rückwärtskompatibel: ältere Widget-Builds lesen nur modelUrl.
     if (mappedModels.length === 1) {
       config.modelUrl = mappedModels[0].url;
     }
@@ -404,7 +393,7 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
 
     if (environment && includeEnv) {
       config.environment = {
-        url: envPath,
+        url: envUrl,
         // Additive: an older widget bundle ignores it and falls back to sniffing
         // the URL, which is correct for every format it can decode.
         format: envFormat,
@@ -432,7 +421,7 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
   var config = ${configStr};
   function boot() {
     if (!window.Web3DWidget) {
-      console.error('[Web3DWidget] Script nicht geladen. jsDelivr liefert nur aus öffentlichen GitHub-Repos – Repo public machen oder Dateien woanders hosten.');
+      console.error('[Web3DWidget] Script nicht geladen – CDN nicht erreichbar oder von einem Blocker unterdrückt.');
       return;
     }
     Web3DWidget.init('#web3d-widget', config);
@@ -450,7 +439,7 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
   document.head.appendChild(s);
 })();
 <\/script>`;
-  }, [project, exportMode, transparent, resolutionId, models, scriptUrl, baseUrl, environment, envFormat, includeEnv, envPath]);
+  }, [project, embedReady, exportMode, transparent, resolutionId, models, assetUrls, scriptUrl, environment, envFormat, includeEnv, envUrl]);
 
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(getEmbedCode());
@@ -532,78 +521,120 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
     }
   }, [project, environment, projectSlug, envFileName]);
 
-  const uploadToGitHub = useCallback(async () => {
-    if (!project || !token || !owner || !repo) return;
+  /**
+   * Publishes every asset of this project and records its public URL.
+   *
+   * Each file is hashed, checked against the CDN, and only transferred when it
+   * is genuinely new — so re-exporting after a tweak to the camera path uploads
+   * nothing at all. The resulting `assetKey` is written back onto the record,
+   * which is what lets the next open resolve URLs without hashing again and
+   * what lets another machine load the project's models at all.
+   */
+  const uploadAssets = useCallback(async () => {
+    if (!project) return;
     setUploading(true);
     setUploadError(null);
-    const log: string[] = [];
     setUploadLog([]);
+    setProgress(null);
+
+    const rows: UploadRow[] = [];
+    const pushRow = (row: UploadRow) => {
+      rows.push(row);
+      setUploadLog([...rows]);
+    };
+
     try {
       const db = await getDB();
-      // Track the newest commit; the last upload's commit contains every prior
-      // file plus the widget bundle, so pinning to it serves a consistent set.
-      let lastSha: string | undefined;
 
-      for (const m of models) {
-        const blob = await db.get('blobs', m.id);
-        if (!blob) continue;
-        const path = `dist-widget/models/${projectSlug}/${modelFileName(m)}`;
-        lastSha =
-          (await putFileToGitHub({
-            owner,
-            repo,
-            branch,
-            path,
-            data: blob.data,
-            token,
-            message: `Upload widget model ${modelFileName(m)}`,
-          })) ?? lastSha;
-        log.push(`OK  ${path}`);
-        setUploadLog([...log]);
+      const targets: Array<{
+        id: string;
+        label: string;
+        contentType: string;
+        extension: string;
+        /** Writes the key back onto its owning record. */
+        persist: (key: string) => Promise<void>;
+      }> = models.map((m) => ({
+        id: m.id,
+        label: modelFileName(m),
+        contentType: 'model/gltf-binary',
+        extension: fileExtension(m.fileName),
+        persist: async (key) => {
+          const current = await db.get('models', m.id);
+          if (current) await db.put('models', { ...current, assetKey: key });
+        },
+      }));
+
+      if (environment && includeEnv && envFormat) {
+        targets.push({
+          id: environment.blobId,
+          label: envFileName,
+          contentType: ENV_CONTENT_TYPE[envFormat],
+          // extensionForFormat includes the dot; the key grammar does not.
+          extension: extensionForFormat(envFormat).slice(1),
+          persist: async (key) => {
+            const current = await db.get('projects', project.id);
+            if (current?.environment) {
+              await db.put('projects', {
+                ...current,
+                environment: { ...current.environment, assetKey: key },
+              });
+            }
+          },
+        });
       }
 
-      if (environment && includeEnv) {
-        const blob = await db.get('blobs', environment.blobId);
-        if (blob) {
-          const path = `dist-widget/env/${projectSlug}/${envFileName}`;
-          lastSha =
-            (await putFileToGitHub({
-              owner,
-              repo,
-              branch,
-              path,
-              data: blob.data,
-              token,
-              message: `Upload widget environment ${envFileName}`,
-            })) ?? lastSha;
-          log.push(`OK  ${path}`);
-          setUploadLog([...log]);
+      if (!targets.length) {
+        pushRow({ label: 'Nichts hochzuladen', state: 'skipped', detail: 'Kein Modell, keine Umgebung.' });
+        return;
+      }
+
+      const publishedKeys: Record<string, string> = {};
+      for (const target of targets) {
+        const blob = await db.get('blobs', target.id);
+        if (!blob) {
+          pushRow({ label: target.label, state: 'failed', detail: 'Datei lokal nicht gefunden.' });
+          continue;
         }
+
+        setProgress({ label: target.label, loaded: 0, total: blob.data.byteLength });
+        const ref = await uploadAsset(
+          {
+            data: blob.data,
+            contentType: target.contentType,
+            extension: target.extension,
+          },
+          (loaded, total) => setProgress({ label: target.label, loaded, total }),
+        );
+
+        publishedKeys[target.id] = ref.key;
+        setAssetUrls((prev) => ({ ...prev, [target.id]: ref.url }));
+        await target.persist(ref.key);
+        pushRow({
+          label: target.label,
+          state: ref.skipped ? 'skipped' : 'uploaded',
+          detail: ref.skipped ? 'unverändert, bereits im CDN' : formatBytes(blob.data.byteLength),
+        });
       }
 
-      if (!log.length) {
-        log.push('Nichts hochzuladen – kein Modell und keine Umgebung vorhanden.');
-      } else if (lastSha) {
-        setDeployedSha(lastSha);
-        log.push(
-          `Fertig. Embed-URLs auf Commit ${lastSha.slice(0, 7)} gepinnt – sofort live, kein Cache-Delay.`,
-        );
-        log.push('Wichtig: Embed-Code unten neu kopieren, damit der Pin greift.');
-      } else {
-        log.push('Fertig. jsDelivr cacht @main bis zu 12h – ggf. erneut einbetten.');
-      }
-      setUploadLog([...log]);
+      // Keep the in-memory model list in step with the keys just persisted, so
+      // reopening the dialog without a remount still recognises them as
+      // published rather than offering to upload again.
+      setModels((prev) =>
+        prev.map((m) => (publishedKeys[m.id] ? { ...m, assetKey: publishedKeys[m.id] } : m)),
+      );
     } catch (err) {
-      setUploadError((err as Error).message);
+      setUploadError(
+        err instanceof ApiError ? err.message : `Upload fehlgeschlagen: ${(err as Error).message}`,
+      );
     } finally {
+      setProgress(null);
       setUploading(false);
     }
-  }, [project, token, owner, repo, branch, models, environment, includeEnv, projectSlug, envFileName]);
+  }, [project, models, environment, includeEnv, envFormat, envFileName]);
 
   if (!project) return null;
 
   const hasEnoughKeyframes = project.cameraPath.keyframes.length >= 2;
-  const canUpload = Boolean(token && owner && repo) && (models.length > 0 || (environment && includeEnv));
 
   const activeMode = EXPORT_MODES.find((m) => m.id === exportMode) ?? EXPORT_MODES[0];
 
@@ -761,96 +792,111 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
             </div>
             )}
 
-            {/* Tab 2 – Hosting: Repo-Ziel, Upload und Asset-Dateien. */}
+            {/* Tab 2 – Hosting: Upload ins CDN und die Asset-Dateien. */}
             {activeTab === 'hosting' && (
             <div className="space-y-6">
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <Label>GitHub-Repo (für jsDelivr-Hosting)</Label>
-                  <InfoHint variant="warning" label="Hinweis zum Repo">
-                    jsDelivr kann nur aus <strong>öffentlichen</strong> GitHub-Repos laden. Ist dein
-                    Repo privat, bekommst du 404 und nichts wird angezeigt. Entweder Repo auf Public
-                    stellen oder Widget + Modelle in Webflow Assets hochladen und die URLs im
-                    Embed-Code anpassen.
-                  </InfoHint>
-                </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <div className="space-y-1">
-                    <span className="text-[11px] text-muted-foreground">Owner</span>
-                    <Input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="owner" />
+              {!hostingOn ? (
+                <Notice variant="warning">
+                  Hosting ist in diesem Build deaktiviert (<code>VITE_ASSET_HOSTING=off</code>).
+                  Lade die Dateien unten herunter und binde sie von deinem eigenen Speicher ein.
+                </Notice>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <Label>Veröffentlichen</Label>
+                    <InfoHint label="Wie das Hosting funktioniert">
+                      Jede Datei wird über ihren Inhalt benannt (SHA-256) und dauerhaft
+                      unveränderlich ausgeliefert. Zwei Folgen: identische Dateien werden nie
+                      zweimal übertragen, und eine einmal eingebettete URL kann später nicht
+                      kaputtgehen. Maximal {MAX_UPLOAD_BYTES / 1024 / 1024}&nbsp;MB pro Datei.
+                    </InfoHint>
                   </div>
-                  <div className="space-y-1">
-                    <span className="text-[11px] text-muted-foreground">Repo</span>
-                    <Input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="repo" />
-                  </div>
-                  <div className="space-y-1">
-                    <span className="text-[11px] text-muted-foreground">Branch</span>
-                    <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="branch" />
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Script wird geladen von{' '}
-                  <code className="break-all text-foreground">{scriptUrl}</code>
-                </p>
-                {deployedSha && (
-                  <p className="text-xs text-green-400">
-                    Auf Commit <code className="text-foreground">{deployedSha.slice(0, 7)}</code> gepinnt –
-                    unveränderliche URLs, kein jsDelivr-Cache-Problem.
-                  </p>
-                )}
-              </div>
 
-              <Separator />
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <Label htmlFor="gh-token">Direkt nach GitHub hochladen</Label>
-                  <InfoHint label="Token-Hinweis">
-                    Token mit Schreibrecht auf <code>Contents</code> (Fine-grained: „Contents: Read
-                    and write" für{' '}
-                    <code>
-                      {owner}/{repo}
-                    </code>
-                    , oder Classic-Token mit <code>repo</code>-Scope).
-                  </InfoHint>
-                </div>
-                <Input
-                  id="gh-token"
-                  type="password"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder="GitHub Personal Access Token"
-                  autoComplete="off"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Wird lokal in diesem Browser gespeichert und beim nächsten Export vorausgefüllt.
-                </p>
-
-                <Button
-                  variant="default"
-                  className="w-full"
-                  disabled={!canUpload || uploading}
-                  onClick={uploadToGitHub}
-                >
-                  {uploading ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Upload className="mr-2 h-4 w-4" />
+                  {oversized.length > 0 && (
+                    <Notice variant="error">
+                      {oversized.length === 1
+                        ? `„${oversized[0]}" ist größer als ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`
+                        : `${oversized.length} Dateien sind größer als ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`}{' '}
+                      und können nicht veröffentlicht werden. Im Szenenbaum über das Menü des
+                      Modells „Optimieren“ ausführen – WebP-Texturen und Draco-Geometrie bringen
+                      ein solches Modell in der Regel deutlich darunter.
+                    </Notice>
                   )}
-                  {uploading
-                    ? 'Lade hoch…'
-                    : `Nach ${owner}/${repo} hochladen (Modelle${environment && includeEnv ? ' + HDRI' : ''})`}
-                </Button>
 
-                {uploadLog.length > 0 && (
-                  <pre className="max-h-32 overflow-auto rounded-md bg-secondary p-2 text-[11px] text-green-400">
-                    {uploadLog.join('\n')}
-                  </pre>
-                )}
-                {uploadError && (
-                  <Notice variant="error">Upload fehlgeschlagen: {uploadError}</Notice>
-                )}
-              </div>
+                  <Button
+                    variant="default"
+                    className="w-full"
+                    disabled={!canUpload || uploading}
+                    onClick={uploadAssets}
+                  >
+                    {uploading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="mr-2 h-4 w-4" />
+                    )}
+                    {uploading
+                      ? 'Lade hoch…'
+                      : `Veröffentlichen (${models.length} ${models.length === 1 ? 'Modell' : 'Modelle'}${environment && includeEnv ? ' + HDRI' : ''})`}
+                  </Button>
+
+                  {progress && (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span className="min-w-0 truncate">{progress.label}</span>
+                        <span className="shrink-0 tabular-nums">
+                          {formatBytes(progress.loaded)} / {formatBytes(progress.total)}
+                        </span>
+                      </div>
+                      <div className="h-1 overflow-hidden rounded-full bg-secondary">
+                        <div
+                          className="h-full rounded-full bg-primary transition-[width] duration-150"
+                          style={{
+                            width: `${progress.total ? Math.round((progress.loaded / progress.total) * 100) : 0}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {uploadLog.length > 0 && (
+                    <div className="max-h-36 space-y-1 overflow-auto rounded-md bg-secondary p-2">
+                      {uploadLog.map((row, index) => (
+                        <div key={`${row.label}-${index}`} className="flex items-center gap-2 text-[11px]">
+                          {row.state === 'failed' ? (
+                            <AlertTriangle className="h-3 w-3 shrink-0 text-red-400" />
+                          ) : (
+                            <Check
+                              className={cn(
+                                'h-3 w-3 shrink-0',
+                                row.state === 'uploaded' ? 'text-green-400' : 'text-muted-foreground',
+                              )}
+                            />
+                          )}
+                          <span className="min-w-0 flex-1 truncate">{row.label}</span>
+                          {row.detail && (
+                            <span className="shrink-0 text-muted-foreground">{row.detail}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {uploadError && <Notice variant="error">{uploadError}</Notice>}
+
+                  {embedReady && !uploading && (
+                    <p className="text-xs text-green-400">
+                      Alle Assets veröffentlicht – der Embed-Code im nächsten Tab ist fertig.
+                    </p>
+                  )}
+                  {!scriptUrl && (
+                    <Notice variant="warning">
+                      Das Widget-Bundle ist noch nicht veröffentlicht. Einmal{' '}
+                      <code>npm run publish:widget</code> ausführen – danach steht seine URL fest
+                      und ältere Embeds bleiben auf ihrer Version.
+                    </Notice>
+                  )}
+                </div>
+              )}
 
               <Separator />
 
@@ -859,11 +905,9 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
                   <div className="flex items-center gap-1.5">
                     <Label>Modelle</Label>
                     <InfoHint label="Ablage-Hinweis">
-                      {supportsFsAccess
-                        ? 'Alternativ einzeln herunterladen und '
-                        : 'Lade jedes Modell herunter und lege es '}
-                      im Repo unter <code>dist-widget/models/{projectSlug}/</code> ablegen. Danach
-                      committen &amp; pushen – jsDelivr liefert die Dateien aus.
+                      Veröffentlichen erledigt der Button oben. Der Download hier ist für den Fall,
+                      dass eine Datei in ein fremdes Hosting soll – etwa Webflow Assets – oder du
+                      sie archivieren willst.
                     </InfoHint>
                   </div>
                   <span className="text-xs text-muted-foreground">
@@ -878,6 +922,14 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
                     {models.map((m) => (
                       <div key={m.id} className="flex items-center gap-2 rounded-md bg-secondary px-3 py-2">
                         <span className="min-w-0 flex-1 truncate text-xs">{m.name}</span>
+                        <span
+                          className={cn(
+                            'shrink-0 text-[11px]',
+                            assetUrls[m.id] ? 'text-green-400' : 'text-muted-foreground',
+                          )}
+                        >
+                          {assetUrls[m.id] ? 'veröffentlicht' : formatBytes(m.fileSize)}
+                        </span>
                         <Button variant="ghost" size="sm" className="shrink-0" onClick={() => downloadModel(m)}>
                           <Download className="mr-1 h-3.5 w-3.5" />
                           {modelFileName(m)}
@@ -901,22 +953,6 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
                 )}
                 {folderStatus && <p className="text-xs text-green-400">{folderStatus}</p>}
 
-                {oversizedModels.length > 0 && (
-                  <div className="flex items-center gap-1.5 text-xs text-orange-400">
-                    <span>
-                      {oversizedModels.length === 1
-                        ? '1 Modell über 20 MiB'
-                        : `${oversizedModels.length} Modelle über 20 MiB`}
-                    </span>
-                    <InfoHint variant="warning" label="Große Modelle">
-                      Dateien über 20&nbsp;MiB werden von jsDelivr mit 403 abgelehnt. Der Embed-Code
-                      lädt sie daher über <code>raw.githubusercontent.com</code> (funktioniert, ist
-                      aber kein CDN). Für schnelleres Laden im Szenenbaum über das Menü des Modells
-                      „Optimieren“ ausführen — Texturen als WebP und Draco-Geometrie bringen ein
-                      solches Modell in der Regel deutlich unter 20&nbsp;MiB.
-                    </InfoHint>
-                  </div>
-                )}
               </div>
 
               {environment && includeEnv && (
@@ -926,7 +962,8 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
                     <div className="flex items-center gap-1.5">
                       <Label>HDRI / Umgebung</Label>
                       <InfoHint label="Ablage-Hinweis">
-                        Datei im Repo unter <code>dist-widget/env/{projectSlug}/</code> ablegen.
+                        Wird zusammen mit den Modellen veröffentlicht. Der Download ist nur für
+                        fremdes Hosting oder zum Archivieren gedacht.
                       </InfoHint>
                     </div>
                     <div className="flex items-center gap-2 rounded-md bg-secondary px-3 py-2">
@@ -938,30 +975,20 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
                           {envFormat ? ` · ${ENVIRONMENT_FORMAT_LABEL[envFormat]}` : ''}
                         </p>
                       </div>
+                      {envUrl && (
+                        <span className="shrink-0 text-[11px] text-green-400">veröffentlicht</span>
+                      )}
                       <Button variant="ghost" size="sm" className="shrink-0" onClick={downloadEnv}>
                         <Download className="mr-1 h-3.5 w-3.5" />
                         {envFileName}
                       </Button>
                     </div>
-                    {envOversized && (
-                      <div className="flex items-center gap-1.5 text-xs text-orange-400">
-                        <span>HDRI über 20 MiB</span>
-                        <InfoHint variant="warning" label="Große Umgebung">
-                          Dateien über 20&nbsp;MiB werden von jsDelivr mit 403 abgelehnt. Der
-                          Embed-Code lädt die Umgebung daher über{' '}
-                          <code>raw.githubusercontent.com</code> (funktioniert, ist aber kein CDN).
-                          Besser: die Umgebung im Eigenschaften-Panel über „Bild ersetzen“ auf
-                          1024&nbsp;× 512 umrechnen.
-                        </InfoHint>
-                      </div>
-                    )}
                     {envFormat === 'ultrahdr' && (
                       <Notice variant="warning">
-                        <strong>Diese Umgebung ist ein Ultra HDR JPEG.</strong> Nur ein neu gebauter
-                        Widget-Build kann sie mit vollem HDR-Bereich lesen. Führe{' '}
-                        <code>npm run build:widget</code> aus und lade{' '}
-                        <code>dist-widget/web3d-widget.iife.js</code> mit hoch – bereits eingebettete
-                        Widgets zeigen sonst nur die flachere SDR-Basis.
+                        <strong>Diese Umgebung ist ein Ultra HDR JPEG.</strong> Nur ein Widget-Build
+                        ab Version {widgetRelease().version ?? '–'} liest sie mit vollem
+                        HDR-Bereich. Bereits eingebettete, ältere Widgets zeigen weiterhin die
+                        flachere SDR-Basis – sie sind auf ihre Bundle-Version gepinnt.
                       </Notice>
                     )}
                     {supportsFsAccess && (
@@ -980,7 +1007,19 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
             {/* Tab 3 – Embed-Code: das finale Deliverable mit primärer Kopieren-Aktion. */}
             {activeTab === 'embed' && (
             <div className="space-y-3">
-              <Button className="w-full" onClick={handleCopy}>
+              {!embedReady && (
+                <Notice variant="warning">
+                  {models.length === 0
+                    ? 'Dieses Projekt hat kein Modell – es gibt nichts einzubetten.'
+                    : !scriptUrl
+                      ? 'Das Widget-Bundle ist noch nicht veröffentlicht. Einmal npm run publish:widget ausführen.'
+                      : `Noch nicht veröffentlicht: ${[
+                          ...pendingModels.map((m) => m.name),
+                          ...(envPending ? ['HDRI / Umgebung'] : []),
+                        ].join(', ')}. Im Tab „Hosting" veröffentlichen – erst dann enthält das Snippet echte URLs.`}
+                </Notice>
+              )}
+              <Button className="w-full" disabled={!embedReady} onClick={handleCopy}>
                 {copied ? (
                   <>
                     <Check className="mr-2 h-4 w-4" />

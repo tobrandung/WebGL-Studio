@@ -60,6 +60,14 @@ export type EnvironmentConfig = {
   sourceFileName?: string;
   /** Id of the bundled HDRI this came from, if any. */
   presetId?: string;
+  /**
+   * Content-addressed key this blob was published under, e.g.
+   * `a/1a2b3c4d5e6f7a8b.webp`. Present once the project has been exported.
+   * Lets the export dialog recognise an already-published asset without
+   * re-hashing the blob, and lets a project opened on another machine load the
+   * environment from the CDN when the local blob is absent.
+   */
+  assetKey?: string;
 };
 
 /**
@@ -86,6 +94,13 @@ export type ModelEntry = {
   order?: number;
   /** Id of the containing outliner group, or null/undefined when ungrouped. */
   groupId?: string | null;
+  /**
+   * Content-addressed key this model was published under, e.g.
+   * `a/1a2b3c4d5e6f7a8b.glb`. Absent until the project is exported. Doubles as
+   * the CDN fallback when the local blob is gone — which is the case for every
+   * model in a project that was synced from another machine.
+   */
+  assetKey?: string;
 };
 
 export type SceneGroup = {
@@ -122,6 +137,19 @@ export type Project = {
   lights?: LightEntry[];
   /** Optional single equirectangular environment for reflections/background. */
   environment?: EnvironmentConfig | null;
+  /**
+   * Bookkeeping for the R2 copy of this project. Absent while a project has
+   * never been synced, which is how the dashboard tells "local only" apart from
+   * "synchronised".
+   */
+  remote?: {
+    /** ETag of the version this editor last read; sent as If-Match on save. */
+    etag: string;
+    /** Server-side save time, not the local `updatedAt`. */
+    syncedAt: number;
+    /** Access identity that wrote that version. */
+    author: string;
+  };
 };
 
 interface Web3DStudioDB extends DBSchema {
@@ -146,6 +174,10 @@ let dbInstance: IDBPDatabase<Web3DStudioDB> | null = null;
 export async function getDB(): Promise<IDBPDatabase<Web3DStudioDB>> {
   if (dbInstance) return dbInstance;
 
+  // Still version 1: every field added since (environment formats, outliner
+  // groups, lights, asset keys, remote sync state) is optional on the record
+  // itself, and IndexedDB does not validate record shape. A version bump would
+  // buy an upgrade transaction that has nothing to do.
   dbInstance = await openDB<Web3DStudioDB>('web3d-studio', 1, {
     upgrade(db) {
       const projectStore = db.createObjectStore('projects', { keyPath: 'id' });
@@ -188,3 +220,10 @@ export async function sweepOrphanBlobs(): Promise<number> {
   await tx.done;
   return orphans.length;
 }
+
+/**
+ * How the editor's save indicator reads. `offline` means the local write
+ * succeeded but the R2 mirror did not; `conflict` means someone else saved this
+ * project in the meantime and the push was refused rather than overwriting it.
+ */
+export type SaveStatus = 'saved' | 'saving' | 'dirty' | 'offline' | 'conflict';

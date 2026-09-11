@@ -1,0 +1,16 @@
+{
+  // The Workers-side type check for infra/. Kept as its own program for the
+  // same reason tsconfig.scripts.json exists: @cloudflare/workers-types and the
+  // DOM lib both declare Request/Response with different shapes, so mixing them
+  // into the app's program would make browser code typecheck against the
+  // Workers runtime (and vice versa).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types"],
+    // No "DOM": the Workers globals come from the types above. Including both
+    // produces duplicate-identifier errors on every fetch primitive.
+    "lib": ["ES2022"],
+    "target": "ES2022"
+  },
+  "include": ["infra"]
+}

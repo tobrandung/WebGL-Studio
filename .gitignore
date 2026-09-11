@@ -7,3 +7,15 @@ dist
 # `npm run presets:hdri` die Presets in public/hdri/ erzeugt. Die Ergebnisse
 # sind versioniert, die Quellen bleiben lokal.
 assets/example-hdris/
+
+# Widget-Build und exportierte Assets. Beides geht jetzt über
+# `npm run publish:widget` bzw. den Export-Dialog nach Cloudflare R2, wo es
+# content-adressiert und unveränderlich liegt. Vorher waren diese Dateien per
+# GitHub Contents API ins Repo committet – jede Optimierungs-Iteration blieb
+# damit dauerhaft in der History.
+dist-widget/
+
+# Lokale Worker-Variablen (Secrets gehören in `wrangler secret put`) und der
+# lokale Miniflare-Zustand, in dem `wrangler dev` R2 simuliert.
+.dev.vars
+.wrangler/

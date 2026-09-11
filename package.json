@@ -1,12 +1,13 @@
 {
   "name": "web3d-studio",
   "version": "0.1.0",
-  "description": "Web3D Studio — Create interactive 3D experiences with camera paths and export as embeddable widgets",
+  "description": "Web3D Studio \u2014 Create interactive 3D experiences with camera paths and export as embeddable widgets",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && tsc -p tsconfig.scripts.json --noEmit && vite build",
+    "build": "tsc --noEmit && tsc -p tsconfig.scripts.json --noEmit && tsc -p tsconfig.worker.json --noEmit && vite build",
     "build:widget": "vite build --config vite.config.widget.ts",
+    "publish:widget": "npm run build:widget && node scripts/publish-widget.ts",
     "preview": "vite preview",
     "hdri:selftest": "node scripts/hdri-selftest.ts",
     "presets:hdri": "node scripts/convert-hdri.ts",
@@ -26,6 +27,7 @@
     "@radix-ui/react-tabs": "^1.1.15",
     "@radix-ui/react-toggle": "^1.1.12",
     "@radix-ui/react-toggle-group": "^1.1.13",
+    "aws4fetch": "1.0.20",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cn": "^0.2.6",
@@ -43,6 +45,7 @@
     "vite": "^8.1.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260911.1",
     "@gltf-transform/cli": "^4.4.0",
     "@tailwindcss/vite": "^4.3.1",
     "@types/node": "^26.4.1",
@@ -51,6 +54,7 @@
     "@types/three": "^0.184.1",
     "@vitejs/plugin-react": "^6.0.3",
     "autoprefixer": "^10.5.2",
-    "tailwindcss": "^4.3.1"
+    "tailwindcss": "^4.3.1",
+    "wrangler": "^4.131.0"
   }
 }

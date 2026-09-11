@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getDB, generateId, type ModelEntry } from '@/lib/db';
+import { loadBlob } from '@/lib/storage/blob-cache';
 
 export function useModels(projectId: string) {
   const [models, setModels] = useState<ModelEntry[]>([]);
@@ -93,10 +94,11 @@ export function useModels(projectId: string) {
     [load],
   );
 
+  /** The model's bytes, from IndexedDB or — for a synced project — the CDN. */
   const getModelBlob = useCallback(async (id: string): Promise<ArrayBuffer | null> => {
     const db = await getDB();
-    const blob = await db.get('blobs', id);
-    return blob?.data ?? null;
+    const record = await db.get('models', id);
+    return loadBlob(id, record?.assetKey);
   }, []);
 
   /**

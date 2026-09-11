@@ -18,13 +18,19 @@ import type { Project } from '@/lib/db';
 
 type ProjectCardProps = {
   project: Project;
+  /**
+   * Whether this project also exists in R2. A project that lives only in
+   * IndexedDB is one cache clear from gone, so the card says so rather than
+   * leaving the distinction invisible.
+   */
+  synced?: boolean;
   onRename: (id: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
   onExport: (id: string) => void;
 };
 
-export function ProjectCard({ project, onRename, onDuplicate, onDelete, onExport }: ProjectCardProps) {
+export function ProjectCard({ project, synced, onRename, onDuplicate, onDelete, onExport }: ProjectCardProps) {
   const navigate = useNavigate();
 
   return (
@@ -84,13 +90,23 @@ export function ProjectCard({ project, onRename, onDuplicate, onDelete, onExport
       </div>
       <CardContent className="p-4">
         <p className="truncate text-sm font-medium">{project.name}</p>
-        <p className="text-xs text-muted-foreground">
-          {new Date(project.updatedAt).toLocaleDateString('de-DE', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-          })}
-        </p>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span>
+            {new Date(project.updatedAt).toLocaleDateString('de-DE', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+            })}
+          </span>
+          {synced === false && (
+            <>
+              <span aria-hidden>·</span>
+              <span className="text-orange-400" title="Noch nicht ins Team-Backup synchronisiert">
+                nur lokal
+              </span>
+            </>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

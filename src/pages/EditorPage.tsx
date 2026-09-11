@@ -12,8 +12,13 @@ import {
   type LightEntry,
   type LightType,
   type EnvironmentConfig,
+  type SaveStatus,
 } from '@/lib/db';
 import { formatBytes } from '@/lib/utils';
+import { loadBlob } from '@/lib/storage/blob-cache';
+import { isHostingConfigured } from '@/lib/storage/config';
+import { ApiError } from '@/lib/storage/api';
+import { pushProject, fetchRemoteProject, toDocument } from '@/lib/sync/projects';
 import { useModels } from '@/hooks/useModels';
 import { useHistory, stateCommand, type Command } from '@/hooks/useHistory';
 import {
@@ -159,10 +164,19 @@ export function EditorPage() {
   const [showSpline, setShowSpline] = useState(true);
   const [showMarkers, setShowMarkers] = useState(true);
   const [isDirty, setIsDirty] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'dirty'>('saved');
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  /**
+   * ETag of the last version this editor pushed, held in a ref rather than on
+   * `project` for the same reason the thumbnail is: the viewport-init effect
+   * keys on the project reference, so writing sync bookkeeping into state would
+   * rebuild the scene on every autosave.
+   */
+  const remoteEtagRef = useRef<string | undefined>(undefined);
   const [outlinerCollapsed, setOutlinerCollapsed] = useState(false);
   const [visibilityMap, setVisibilityMap] = useState<Record<string, boolean>>({});
   const [showLeaveDialog, setShowLeaveDialog] = useState(false);
+  const [conflictAuthor, setConflictAuthor] = useState<string | null>(null);
+  const [resolvingConflict, setResolvingConflict] = useState(false);
   const [groups, setGroups] = useState<SceneGroup[]>([]);
   const [lights, setLights] = useState<LightEntry[]>([]);
   const [environment, setEnvironment] = useState<EnvironmentConfig | null>(null);
@@ -224,6 +238,7 @@ export function EditorPage() {
       const p = await db.get('projects', id);
       if (!p) { navigate('/'); return; }
       setProject(p);
+      remoteEtagRef.current = p.remote?.etag;
       // Older projects stored keyframes without an id. Assign one so every
       // keyframe is individually addressable; persisted lazily on first edit.
       setKeyframes(p.cameraPath.keyframes.map((kf) => ({ ...kf, id: kf.id ?? generateId() })));
@@ -412,11 +427,10 @@ export function EditorPage() {
         updateBackground(ctx, backgroundRef.current, transparent);
         return;
       }
-      const db = await getDB();
-      const blob = await db.get('blobs', config.blobId);
-      if (!blob || cancelled) return;
+      const data = await loadBlob(config.blobId, config.assetKey);
+      if (!data || cancelled) return;
       const texture = await loadEquirectTexture(
-        new Blob([blob.data]),
+        new Blob([data]),
         config.fileName,
         environmentFormat(config),
       );
@@ -787,7 +801,7 @@ export function EditorPage() {
     const thumbnail = (ctx && captureThumbnail(ctx)) || project.thumbnail;
 
     // Save camera path + outliner groups + lights + environment
-    await db.put('projects', {
+    const saved = {
       ...project,
       thumbnail,
       settings: { ...project.settings, background },
@@ -796,11 +810,89 @@ export function EditorPage() {
       lights: lightsToSave,
       environment,
       updatedAt: Date.now(),
-    });
-
-    setSaveStatus('saved');
+    };
+    await db.put('projects', saved);
     setIsDirty(false);
+
+    if (!isHostingConfigured()) {
+      setSaveStatus('saved');
+      return;
+    }
+
+    // Mirror into R2. The local write above has already happened, so a failure
+    // here costs durability and hand-off, not the user's work — which is why it
+    // downgrades the indicator instead of throwing.
+    try {
+      const modelRecords = await db.getAllFromIndex('models', 'by-project', id);
+      const result = await pushProject(toDocument(saved, modelRecords), remoteEtagRef.current);
+      remoteEtagRef.current = result.etag;
+      // Written straight to the store, deliberately not through setProject.
+      await db.put('projects', {
+        ...saved,
+        remote: { etag: result.etag, syncedAt: result.updatedAt, author: result.author },
+      });
+      setSaveStatus('saved');
+    } catch (err) {
+      if (err instanceof ApiError && err.kind === 'conflict') {
+        setSaveStatus('conflict');
+        setConflictAuthor(err.message);
+      } else {
+        setSaveStatus('offline');
+      }
+    }
   }, [id, project, keyframes, isLoop, cameraSpeed, groups, lights, environment, background, updateModel]);
+
+  /**
+   * Resolves a save conflict, explicitly and in one direction or the other.
+   *
+   * There is no automatic merge to be had here — two people moved the same
+   * camera — so the only honest options are to take theirs or keep yours, and
+   * the user has to say which. Without this the editor would sit on "Konflikt"
+   * forever: reloading re-reads IndexedDB, which is exactly the version that was
+   * refused.
+   */
+  const resolveConflict = useCallback(
+    async (keep: 'remote' | 'local') => {
+      if (!id) return;
+      setResolvingConflict(true);
+      try {
+        const { document, etag } = await fetchRemoteProject(id);
+        remoteEtagRef.current = etag;
+
+        if (keep === 'remote') {
+          const db = await getDB();
+          const existingModels = await db.getAllFromIndex('models', 'by-project', id);
+          const incoming = new Set(document.models.map((m) => m.id));
+          const tx = db.transaction(['projects', 'models'], 'readwrite');
+          await tx.objectStore('projects').put({
+            ...document.project,
+            remote: { etag, syncedAt: Date.now(), author: '' },
+          });
+          // Models the other version dropped have to go, or the scene would show
+          // a union of both edits — which is neither version.
+          for (const model of existingModels) {
+            if (!incoming.has(model.id)) await tx.objectStore('models').delete(model.id);
+          }
+          for (const model of document.models) await tx.objectStore('models').put(model);
+          await tx.done;
+          // Simplest correct way back to a consistent editor: reload the route.
+          window.location.reload();
+          return;
+        }
+
+        // Keep local: re-push against the version that is actually out there.
+        setConflictAuthor(null);
+        setSaveStatus('dirty');
+        performSaveRef.current?.();
+      } catch {
+        setSaveStatus('offline');
+        setConflictAuthor(null);
+      } finally {
+        setResolvingConflict(false);
+      }
+    },
+    [id],
+  );
 
   useEffect(() => {
     performSaveRef.current = performSave;
@@ -1733,6 +1825,7 @@ export function EditorPage() {
         history={history}
         projectName={project.name}
         saveStatus={saveStatus}
+        onResolveConflict={() => setConflictAuthor((prev) => prev ?? 'Dieses Projekt wurde zwischenzeitlich woanders gespeichert.')}
         hasKeyframes={keyframes.length > 0}
       />
       <SceneOutliner
@@ -1867,6 +1960,31 @@ export function EditorPage() {
           environment,
         }}
       />
+
+      <AlertDialog open={conflictAuthor !== null} onOpenChange={(next) => !next && setConflictAuthor(null)}>
+        <AlertDialogContent className={GLASS_SURFACE}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Speicher-Konflikt</AlertDialogTitle>
+            <AlertDialogDescription>
+              {conflictAuthor} Deine Änderungen sind weiterhin lokal vorhanden – du musst nur
+              entscheiden, welche Fassung gilt.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={resolvingConflict}>Später entscheiden</AlertDialogCancel>
+            <Button
+              variant="outline"
+              disabled={resolvingConflict}
+              onClick={() => resolveConflict('remote')}
+            >
+              Fremde Version laden
+            </Button>
+            <AlertDialogAction disabled={resolvingConflict} onClick={() => resolveConflict('local')}>
+              Meine Version durchsetzen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={showLeaveDialog} onOpenChange={setShowLeaveDialog}>
         {/* Same surface as every Dialog — AlertDialog is a separate Radix

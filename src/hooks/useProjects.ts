@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getDB, generateId, type Project, type ProjectSettings, type CameraPath } from '@/lib/db';
+import { isHostingConfigured } from '@/lib/storage/config';
+import { deleteRemoteProject } from '@/lib/sync/projects';
 
 const DEFAULT_SETTINGS: ProjectSettings = {
   background: '#1a1a1a',
@@ -59,6 +61,17 @@ export function useProjects() {
     [load],
   );
 
+  /**
+   * Deletes the project locally and in R2.
+   *
+   * Both, because a local-only delete would leave the project showing up again
+   * under "Im Team-Speicher" — and because the remote copy is the shared one,
+   * this is destructive for colleagues too. The dashboard therefore asks first.
+   *
+   * Published assets are deliberately left in R2: they are content-addressed,
+   * may be shared with another project, and may still be serving an embed on a
+   * live customer site.
+   */
   const deleteProject = useCallback(
     async (id: string) => {
       const db = await getDB();
@@ -70,6 +83,12 @@ export function useProjects() {
         await tx.objectStore('blobs').delete(model.id);
       }
       await tx.done;
+
+      if (isHostingConfigured()) {
+        // A failed remote delete is not worth failing the local one over; the
+        // project simply reappears as a team entry until the next attempt.
+        await deleteRemoteProject(id).catch(() => {});
+      }
       await load();
     },
     [load],

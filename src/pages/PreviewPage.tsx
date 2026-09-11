@@ -6,6 +6,7 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { ArrowLeft, Play, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getDB, environmentFormat, type Project } from '@/lib/db';
+import { loadBlob } from '@/lib/storage/blob-cache';
 import { buildSplines, getCameraAtProgress, type Keyframe } from '@/three/camera-path';
 import {
   syncLights,
@@ -83,10 +84,9 @@ export function PreviewPage() {
     if (project.environment) {
       const env = project.environment;
       (async () => {
-        const db = await getDB();
-        const blob = await db.get('blobs', env.blobId);
-        if (!blob || envCancelled) return;
-        const texture = await loadEquirectTexture(new Blob([blob.data]), env.fileName, environmentFormat(env));
+        const data = await loadBlob(env.blobId, env.assetKey);
+        if (!data || envCancelled) return;
+        const texture = await loadEquirectTexture(new Blob([data]), env.fileName, environmentFormat(env));
         if (envCancelled) {
           texture.dispose();
           return;
@@ -110,10 +110,10 @@ export function PreviewPage() {
 
       await Promise.all(
         models.map(async (model) => {
-          const blob = await db.get('blobs', model.id);
-          if (!blob) return;
+          const data = await loadBlob(model.id, model.assetKey);
+          if (!data) return;
           try {
-            const gltf = await gltfLoader.parseAsync(blob.data, '');
+            const gltf = await gltfLoader.parseAsync(data, '');
             const wrapper = new THREE.Group();
             wrapper.add(gltf.scene);
             const box = new THREE.Box3().setFromObject(wrapper);

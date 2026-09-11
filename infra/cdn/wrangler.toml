@@ -1,0 +1,11 @@
+# Public asset delivery. Deliberately a separate Worker from `studio`: this one
+# must stay reachable without Cloudflare Access, because the embed snippet runs
+# on customer websites. Never attach an Access policy here.
+name = "web3d-cdn"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "web3d-assets"

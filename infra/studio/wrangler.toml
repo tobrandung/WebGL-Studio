@@ -1,0 +1,36 @@
+# The studio: SPA plus API on one origin, behind Cloudflare Access.
+#
+# Access is attached at the Worker level (Workers → Settings → Access), which
+# also covers the workers.dev hostname — the reason this works without owning a
+# DNS zone. The policy is "emails ending in @brandung.de", login by one-time
+# PIN, so no identity provider has to be set up.
+name = "web3d-studio"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[assets]
+directory = "../../dist"
+binding = "STATIC"
+# HashRouter means every route is served by index.html anyway; this keeps a
+# stray deep link from 404ing.
+not_found_handling = "single-page-application"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "web3d-assets"
+
+[vars]
+R2_BUCKET = "web3d-assets"
+# Filled in after `wrangler deploy` of infra/cdn — the public delivery origin.
+CDN_BASE = "https://web3d-cdn.CHANGEME.workers.dev"
+# From Zero Trust → Access → Applications → your app → Application Audience tag,
+# and your team domain (e.g. brandung.cloudflareaccess.com). Both must be set in
+# production: their absence is what enables the local DEV_IDENTITY bypass.
+ACCESS_TEAM_DOMAIN = "CHANGEME.cloudflareaccess.com"
+ACCESS_AUD = "CHANGEME"
+
+# Secrets, set with `wrangler secret put <name>`:
+#   R2_ACCOUNT_ID
+#   R2_ACCESS_KEY_ID
+#   R2_SECRET_ACCESS_KEY

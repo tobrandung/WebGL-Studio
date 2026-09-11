@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import type { SaveStatus } from '@/lib/db';
 import { Separator } from '@/components/ui/separator';
 import {
   Tooltip,
@@ -51,7 +52,9 @@ type EditorToolbarProps = {
   onRedo: () => void;
   history: HistoryState;
   projectName: string;
-  saveStatus: 'saved' | 'saving' | 'dirty';
+  saveStatus: SaveStatus;
+  /** Opens the conflict resolution dialog. */
+  onResolveConflict: () => void;
   hasKeyframes: boolean;
 };
 
@@ -69,6 +72,7 @@ export function EditorToolbar({
   history,
   projectName,
   saveStatus,
+  onResolveConflict,
   hasKeyframes,
 }: EditorToolbarProps) {
   return (
@@ -91,6 +95,26 @@ export function EditorToolbar({
       )}
       {saveStatus === 'dirty' && (
         <span className="inline-block h-2 w-2 rounded-full bg-orange-400" title="Ungespeicherte Änderungen" />
+      )}
+      {/* Local save succeeded, the R2 copy did not — the work is safe in this
+          browser but nowhere else, which is worth saying plainly. */}
+      {saveStatus === 'offline' && (
+        <span
+          className="text-xs text-orange-400"
+          title="Lokal gespeichert, aber nicht ins CDN synchronisiert. Bei abgelaufener Sitzung hilft ein Reload."
+        >
+          Nur lokal
+        </span>
+      )}
+      {saveStatus === 'conflict' && (
+        <button
+          type="button"
+          onClick={onResolveConflict}
+          className="text-xs text-red-400 underline underline-offset-2 hover:text-red-300"
+          title="Jemand anderes hat dieses Projekt zwischenzeitlich gespeichert. Klicken, um zu entscheiden, welche Fassung gilt."
+        >
+          Konflikt
+        </button>
       )}
 
       <Separator orientation="vertical" className="mx-1.5 h-6" />
