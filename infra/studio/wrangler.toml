@@ -23,7 +23,7 @@ bucket_name = "web3d-assets"
 [vars]
 R2_BUCKET = "web3d-assets"
 # Filled in after `wrangler deploy` of infra/cdn — the public delivery origin.
-CDN_BASE = "https://web3d-cdn.CHANGEME.workers.dev"
+CDN_BASE = "https://web3d-cdn.brandung-3d.workers.dev"
 # From Zero Trust → Access → Applications → your app → Application Audience tag,
 # and your team domain (e.g. brandung.cloudflareaccess.com). Both must be set in
 # production: their absence is what enables the local DEV_IDENTITY bypass.

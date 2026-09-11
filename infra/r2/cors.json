@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "https://web3d-studio.brandung-3d.workers.dev",
+          "http://localhost:5173"
+        ],
+        "methods": ["PUT", "HEAD"],
+        "headers": ["content-type", "cache-control"]
+      },
+      "exposeHeaders": ["etag"],
+      "maxAgeSeconds": 86400
+    }
+  ]
+}

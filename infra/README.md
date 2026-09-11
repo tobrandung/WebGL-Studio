@@ -68,18 +68,19 @@ curl -X POST https://dash.cloudflare.com/oauth2/revoke \
 npx wrangler r2 bucket create web3d-assets
 ```
 
-CORS für den Direkt-Upload (Dashboard → R2 → web3d-assets → Settings → CORS):
+CORS für den Direkt-Upload. Die Regel liegt versioniert in
+`infra/r2/cors.json` – setzen, sobald die Studio-Origin bekannt ist (also nach
+Schritt 4), und die Origin dort bei einer neuen Subdomain nachziehen:
 
-```json
-[
-  {
-    "AllowedOrigins": ["https://web3d-studio.<subdomain>.workers.dev", "http://localhost:5173"],
-    "AllowedMethods": ["PUT", "HEAD"],
-    "AllowedHeaders": ["content-type", "cache-control"],
-    "MaxAgeSeconds": 86400
-  }
-]
+```bash
+npx wrangler r2 bucket cors set web3d-assets --file infra/r2/cors.json
+npx wrangler r2 bucket cors list web3d-assets
 ```
+
+Achtung beim Schema: die CLI erwartet das native R2-Format
+(`{"rules":[{"allowed":{"origins":…,"methods":…,"headers":…}}]}`), während der
+JSON-Editor im Dashboard die S3-Schreibweise mit `AllowedOrigins` nutzt. Wer das
+verwechselt, bekommt nur „must contain a 'rules' array".
 
 Ohne diese Regel schlägt jeder Upload als Netzwerkfehler fehl – der Browser
 zeigt dann keinen HTTP-Status, sondern nur einen abgebrochenen Request.
