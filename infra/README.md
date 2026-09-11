@@ -23,6 +23,45 @@ presigned URL aus, der Browser lädt direkt nach R2. Deshalb greift das
 Reihenfolge einhalten – der Studio-Worker braucht die CDN-URL, und die
 Access-Policy braucht den deployten Worker.
 
+### 0. Beim richtigen Cloudflare-Konto anmelden
+
+`wrangler login` fragt **nicht**, als wer du dich anmelden willst: der
+OAuth-Flow übernimmt die Cloudflare-Session, die im Standardbrowser gerade
+aktiv ist. Wer dort mit einem anderen Konto eingeloggt ist, deployt still und
+leise in das falsche – die eingetippte Adresse spielt keine Rolle.
+
+Deterministisch ist deshalb der Weg über ein API-Token, das gar keine
+Browser-Session anfassen kann:
+
+1. Im **richtigen** Konto: Dashboard → My Profile → API Tokens → *Create Token*
+   → Vorlage **Edit Cloudflare Workers** (enthält auch Workers R2 Storage).
+2. Account-ID aus der Übersichtsseite dazunehmen, falls das Konto mehrere hat.
+
+```bash
+export CLOUDFLARE_API_TOKEN=…
+export CLOUDFLARE_ACCOUNT_ID=…      # nur nötig bei mehreren Konten
+npx wrangler whoami                 # prüfen, bevor irgendwas deployt wird
+```
+
+Wer lieber OAuth nutzt: vorher auf `dash.cloudflare.com` ausloggen oder den
+Login-Link in einem privaten Fenster öffnen, sonst greift wieder dieselbe
+Session.
+
+`npx wrangler whoami` vor jedem Schritt ist die billigste Absicherung – ein
+Deploy ins falsche Konto fällt sonst erst auf, wenn die Worker-URL nicht
+erreichbar ist.
+
+**Token-Hygiene:** `wrangler logout` verweigert die Arbeit, wenn das
+Access-Token bereits abgelaufen ist – das langlebige Refresh-Token bleibt dann
+in `~/Library/Preferences/.wrangler/config/default.toml` liegen. Muss ein
+Zugang wirklich entwertet werden, hilft nur der Widerruf am Endpunkt:
+
+```bash
+curl -X POST https://dash.cloudflare.com/oauth2/revoke \
+  --data-urlencode "client_id=54d11594-84e4-41aa-b438-e81b8fa78ee7" \
+  --data-urlencode "token=<refresh_token aus der Datei>"
+```
+
 ### 1. Bucket
 
 ```bash
