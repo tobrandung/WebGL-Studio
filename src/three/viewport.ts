@@ -195,7 +195,23 @@ export function captureThumbnail(ctx: ViewportContext, width = 320, height = 180
   // Flatten onto a solid backdrop so transparent scenes don't become pure black.
   c2d.fillStyle = '#0f0f11';
   c2d.fillRect(0, 0, width, height);
-  c2d.drawImage(source, 0, 0, width, height);
+  // Centre-crop rather than squash. The viewport is whatever shape the panel
+  // layout leaves it — rarely 16:9 — and scaling that straight into the
+  // thumbnail box stretched every model on the dashboard.
+  const scale = Math.max(width / source.width, height / source.height);
+  const cropWidth = width / scale;
+  const cropHeight = height / scale;
+  c2d.drawImage(
+    source,
+    (source.width - cropWidth) / 2,
+    (source.height - cropHeight) / 2,
+    cropWidth,
+    cropHeight,
+    0,
+    0,
+    width,
+    height,
+  );
   return canvas.toDataURL('image/jpeg', 0.72);
 }
 

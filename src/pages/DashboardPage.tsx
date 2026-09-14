@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, CloudDownload, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,7 @@ import { ProjectCard } from '@/components/ProjectCard';
 import { ExportDialog } from '@/components/ExportDialog';
 import { useProjects } from '@/hooks/useProjects';
 import { useRemoteProjects } from '@/hooks/useRemoteProjects';
+import { useGridColumns } from '@/hooks/useGridColumns';
 import { Card, CardContent } from '@/components/ui/card';
 import type { Project } from '@/lib/db';
 
@@ -36,8 +37,13 @@ function Brand({ size = 'md' }: { size?: 'md' | 'lg' }) {
   );
 }
 
+/** Seconds each column lags behind the one to its left. */
+const COLUMN_STAGGER = 0.06;
+
 export function DashboardPage() {
   const navigate = useNavigate();
+  const gridRef = useRef<HTMLDivElement>(null);
+  const columns = useGridColumns(gridRef);
   const { projects, loading, createProject, updateProject, deleteProject, duplicateProject } = useProjects();
   const { remoteOnly, importing, importProject } = useRemoteProjects(projects, loading);
   const [showNewDialog, setShowNewDialog] = useState(false);
@@ -104,12 +110,16 @@ export function DashboardPage() {
               Neues Projekt
             </Button>
           </div>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {projects.map((project) => (
+          <div
+            ref={gridRef}
+            className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          >
+            {projects.map((project, index) => (
               <ProjectCard
                 key={project.id}
                 project={project}
                 synced={Boolean(project.remote)}
+                delay={(index % columns) * COLUMN_STAGGER}
                 onRename={openRename}
                 onDuplicate={(id) => duplicateProject(id)}
                 onDelete={(id) => {

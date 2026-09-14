@@ -1,7 +1,7 @@
 {
   "name": "web3d-studio",
   "version": "0.1.0",
-  "description": "Web3D Studio \u2014 Create interactive 3D experiences with camera paths and export as embeddable widgets",
+  "description": "Web3D Studio — Create interactive 3D experiences with camera paths and export as embeddable widgets",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -34,6 +34,7 @@
     "draco3dgltf": "^1.5.7",
     "idb": "^8.0.3",
     "lucide-react": "^1.21.0",
+    "motion": "^13.2.0",
     "radix-ui": "^1.6.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
