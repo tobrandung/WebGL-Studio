@@ -47,7 +47,7 @@ function AlertDialogOverlay({
 /* `grid-cols-[minmax(0,1fr)]` statt der impliziten Spalte: Grid-Items haben
    `min-width: auto` und dehnen die Spalte sonst auf ihre min-content-Breite.
    Ein Footer aus drei `whitespace-nowrap`-Buttons war dadurch 569px breit,
-   waehrend der Hintergrund bei `max-w-lg` (512px) stehen blieb — Text und
+   waehrend der Hintergrund bei `max-w-lg` (512px) stehen blieb. Text und
    Buttons ragten sichtbar ueber die Glasflaeche hinaus. Der Footer darf
    zusaetzlich umbrechen, damit die Buttons im engen Fall untereinander
    rutschen statt abgeschnitten zu werden. */

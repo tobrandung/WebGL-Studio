@@ -1,8 +1,8 @@
 /**
  * Pure image geometry: target sizes and header-only dimension reads.
  *
- * Kept apart from `texture-pass.ts` so the estimator — and the Node self-test
- * — can use it without dragging in `createImageBitmap` and the canvas.
+ * Kept apart from `texture-pass.ts` so that the estimator and the Node
+ * self-test can use it without dragging in `createImageBitmap` and the canvas.
  */
 
 /**
@@ -48,7 +48,7 @@ export function gpuBytesFor(width: number, height: number): number {
 }
 
 /**
- * Minimal PNG/JPEG/WebP header parse — dimensions only. Reading the header
+ * Minimal PNG/JPEG/WebP header parse. Dimensions only. Reading the header
  * costs microseconds where a decode costs tens of milliseconds, and choosing
  * a target size does not need the pixels.
  */

@@ -41,7 +41,7 @@ import {
 import { HDRI_PRESETS } from '@/lib/hdri/presets.generated';
 import type { EnvironmentFormat, HdriPreset } from '@/lib/hdri/types';
 import type { EnvironmentConfig } from '@/lib/db';
-import { formatBytes } from '@/lib/utils';
+import { formatBytes, cn } from '@/lib/utils';
 import { formatSaving } from '@/lib/format';
 
 /** What the dialog hands back once the user commits. */
@@ -63,7 +63,7 @@ type EnvironmentUploadDialogProps = {
    * surfaces here instead of closing on a lie.
    */
   onUpload: (result: EnvironmentUploadResult) => Promise<void>;
-  /** Present when replacing — drives the copy and the recommended resolution. */
+  /** Present when replacing. Drives the copy and the recommended resolution. */
   current?: EnvironmentConfig | null;
 };
 
@@ -115,7 +115,7 @@ export function EnvironmentUploadDialog({
         onOpenChange(false);
       } catch (cause) {
         const message = (cause as Error)?.name === 'QuotaExceededError'
-          ? 'Speicher voll – der Browser kann die Datei nicht ablegen. Rechne sie kleiner oder lösche ein anderes Projekt.'
+          ? 'Speicher voll. Der Browser kann die Datei nicht ablegen. Rechne sie kleiner oder lösche ein anderes Projekt.'
           : `Übernehmen fehlgeschlagen: ${(cause as Error).message}`;
         setCommitError(message);
       } finally {
@@ -180,7 +180,7 @@ export function EnvironmentUploadDialog({
   const sizeHint = probe && !sizeWarning && probe.bytes > BUDGET_GOOD;
   const resolutionWarning = probe && probe.width > RESOLUTION_WARN;
 
-  // "Original übernehmen" stays reachable on every path — a probe or encode
+  // "Original übernehmen" stays reachable on every path. A probe or encode
   // failure must never prevent adding the file the user picked.
   const canCommitOriginal = Boolean(file) && status !== 'sniffing' && !committing;
 
@@ -198,7 +198,7 @@ export function EnvironmentUploadDialog({
           <DialogDescription>
             {current
               ? 'Die Einstellungen für Spiegelung, Hintergrund, Intensität und Unschärfe bleiben erhalten.'
-              : 'Equirektanguläres Bild als Spiegelung (IBL) und optional als Hintergrund. Die Datei wird mit dem Widget ausgeliefert – ihre Größe landet direkt im Seitengewicht deiner Seite.'}
+              : 'Equirektanguläres Bild als Spiegelung (IBL) und optional als Hintergrund. Die Datei wird mit dem Widget ausgeliefert. Ihre Größe landet direkt im Seitengewicht deiner Seite.'}
           </DialogDescription>
         </GlassDialogHeader>
 
@@ -281,12 +281,12 @@ export function EnvironmentUploadDialog({
                   <div className="flex items-center gap-1.5">
                     <Label className="text-xs">Dateigröße</Label>
                     <InfoHint label="Best Practice für HDRIs">
-                      Faustregel: <strong>1024 × 512</strong> genügt für Spiegelungen – three.js
+                      Faustregel: <strong>1024 × 512</strong> genügt für Spiegelungen. Three.js
                       filtert das HDRI dafür ohnehin auf eine 256-px-Cubemap herunter (PMREM),
                       feinere Details landen dort nie im Bild. <strong>2048 × 1024</strong> nur, wenn
                       die Umgebung als sichtbarer, scharfer Hintergrund läuft. Ein 1k-.hdr liegt
                       typischerweise bei 1–2 MB; wenn es kleiner werden muss, ohne HDR-Bereich zu
-                      verlieren: <strong>Ultra HDR JPEG</strong> – gleiche Dynamik bei etwa einem
+                      verlieren: <strong>Ultra HDR JPEG</strong>. Gleiche Dynamik bei etwa einem
                       Zwanzigstel der Dateigröße.
                     </InfoHint>
                   </div>
@@ -301,16 +301,16 @@ export function EnvironmentUploadDialog({
                 {sizeWarning && (
                   <Notice variant="warning">
                     <strong>Diese Umgebung ist mit {formatBytes(probe.bytes)} zu groß fürs Web.</strong>{' '}
-                    Das HDRI wird beim Export mitgeliefert und von jedem Besucher deiner Seite geladen
-                    – es zählt voll ins Seitengewicht. Über 20 MiB liefert das CDN (jsDelivr) die
-                    Datei gar nicht mehr aus (HTTP 403). Empfehlung: hier direkt umrechnen – für
+                    Das HDRI wird beim Export mitgeliefert und von jedem Besucher deiner Seite
+                    geladen, es zählt also voll ins Seitengewicht. Über 20 MiB liefert das CDN (jsDelivr) die
+                    Datei gar nicht mehr aus (HTTP 403). Empfehlung: hier direkt umrechnen. Für
                     Spiegelungen bleibt die Qualität praktisch identisch.
                   </Notice>
                 )}
 
                 {sizeHint && (
                   <p className="flex items-center gap-1.5 text-xs text-orange-400">
-                    {formatBytes(probe.bytes)} ist vertretbar – unter 1 MB lädt deine Seite messbar
+                    {formatBytes(probe.bytes)} ist vertretbar. Unter 1 MB lädt deine Seite messbar
                     schneller.
                   </p>
                 )}
@@ -322,7 +322,7 @@ export function EnvironmentUploadDialog({
                     </strong>{' '}
                     Die Auflösung ist unabhängig von der Dateigröße ein Problem: entpackt belegt das
                     Bild rund {formatBytes(textureBytes(probe.width, probe.height))} Grafikspeicher,
-                    und viele mobile GPUs verarbeiten maximal 4096 px – dort bleibt die Umgebung dann
+                    und viele mobile GPUs verarbeiten maximal 4096 px. Dort bleibt die Umgebung dann
                     schwarz. Für Spiegelungen rechnet three.js ohnehin auf eine 256-px-Cubemap
                     herunter; mehr als 1024 × 512 bringt dort keinen sichtbaren Gewinn.
                     {probe.width > RESOLUTION_SEVERE &&
@@ -332,7 +332,7 @@ export function EnvironmentUploadDialog({
 
                 {probe?.note && (
                   <p className="text-xs text-muted-foreground">
-                    Hinweis: Die Datei ist eine {probe.note}-Variante – falls das Ergebnis seltsam
+                    Hinweis: Die Datei ist eine {probe.note}-Variante. Falls das Ergebnis seltsam
                     aussieht, exportiere sie als einfaches Scanline-EXR neu.
                   </p>
                 )}
@@ -349,7 +349,8 @@ export function EnvironmentUploadDialog({
                             <Button
                               key={format}
                               size="sm"
-                              variant={isActive ? 'default' : 'outline'}
+                              variant="outline"
+                              className={cn(isActive && 'active-surface')}
                               onClick={() => converter.selectTarget(key)}
                               disabled={committing}
                             >
@@ -378,8 +379,8 @@ export function EnvironmentUploadDialog({
                             <Button
                               key={width}
                               size="sm"
-                              variant={isActive ? 'default' : 'outline'}
-                              className="h-auto flex-col gap-0 py-1.5"
+                              variant="outline"
+                              className={cn('h-auto flex-col gap-0 py-1.5', isActive && 'active-surface')}
                               onClick={() => converter.selectTarget(key)}
                               disabled={committing}
                             >
@@ -397,7 +398,7 @@ export function EnvironmentUploadDialog({
                                 ) : variant ? (
                                   formatBytes(variant.blob.size)
                                 ) : (
-                                  '—'
+                                  '–'
                                 )}
                               </span>
                             </Button>

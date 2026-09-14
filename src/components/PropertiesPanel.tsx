@@ -45,7 +45,7 @@ type PropertiesPanelProps = {
   background: string | null;
   /**
    * The scene's environment regardless of what is selected. The world panel
-   * needs it to offer the HDRI as a background source — and to hide that
+   * needs it to offer the HDRI as a background source. And to hide that
    * option entirely when no environment has been added.
    */
   sceneEnvironment: EnvironmentConfig | null;
@@ -196,7 +196,7 @@ type BackgroundMode = 'hdri' | 'gray' | 'custom';
 /**
  * The three mutually exclusive background sources. Only one can own
  * `scene.background`, so picking a colour turns the HDRI dome off and picking
- * the HDRI leaves the colour untouched — switch back and the grey/hex values
+ * the HDRI leaves the colour untouched. Switch back and the grey/hex values
  * are still there. The HDRI card only exists while an environment is loaded.
  */
 function WorldProperties({
@@ -231,7 +231,7 @@ function WorldProperties({
   useEffect(() => {
     setHexDraft(background);
     // Follow externally applied greys (undo/redo) so the thumb keeps matching
-    // the colour it produced. The mode is left alone — which card is
+    // the colour it produced. The mode is left alone. Which card is
     // highlighted stays the user's choice.
     if (isPureGray(background)) setGraySliderValue(hexToGrayChannel(background));
   }, [background]);
@@ -274,7 +274,7 @@ function WorldProperties({
           className={cn(
             'cursor-pointer rounded-lg border p-3 transition-colors',
             mode === 'hdri'
-              ? 'border-ring bg-accent/40 ring-1 ring-ring'
+              ? 'active-surface'
               : 'border-border/60 opacity-60 hover:opacity-80',
           )}
         >
@@ -302,7 +302,7 @@ function WorldProperties({
         className={cn(
           'cursor-pointer rounded-lg border p-3 transition-colors',
           mode === 'gray'
-            ? 'border-ring bg-accent/40 ring-1 ring-ring'
+            ? 'active-surface'
             : 'border-border/60 opacity-60 hover:opacity-80',
         )}
       >
@@ -341,7 +341,7 @@ function WorldProperties({
         className={cn(
           'cursor-pointer rounded-lg border p-3 transition-colors',
           mode === 'custom'
-            ? 'border-ring bg-accent/40 ring-1 ring-ring'
+            ? 'active-surface'
             : 'border-border/60 opacity-60 hover:opacity-80',
         )}
       >
@@ -508,7 +508,7 @@ function EnvironmentProperties({
             {` · ${ENVIRONMENT_FORMAT_LABEL[environmentFormat(environment)]}`}
             {environment.fileSize !== undefined && environment.fileSize > BUDGET_OK && (
               <InfoHint variant="warning" label="Große Umgebung">
-                Diese Umgebung ist für ein Web-Widget groß – sie wird beim Export mitgeliefert und
+                Diese Umgebung ist für ein Web-Widget groß. Sie wird beim Export mitgeliefert und
                 von jedem Besucher geladen. Über „Bild ersetzen“ lässt sie sich auf 1024 × 512
                 umrechnen; für Spiegelungen bleibt die Qualität praktisch identisch.
               </InfoHint>
@@ -583,7 +583,7 @@ function formatAxis(value: number): string {
  *
  * Only the axis being typed in holds a draft; the other two render straight
  * from `value`. Keeping drafts for all three meant an edit that also moved its
- * siblings — proportional scaling, or an undo — left those fields showing the
+ * siblings, proportional scaling, or an undo, left those fields showing the
  * old number while the scene had already changed.
  */
 function Vec3Field({
@@ -643,7 +643,7 @@ function Vec3Field({
 /**
  * Which transform the panel exposes follows the active tool, the way a DCC's
  * coordinate manager does: the toolbar picks the channel, the fields edit it.
- * Rotation is shown in degrees — radians in a UI field would be unreadable.
+ * Rotation is shown in degrees. Radians in a UI field would be unreadable.
  */
 const TRANSFORM_FIELD: Record<TransformMode, { key: ModelTransformKey; label: string }> = {
   translate: { key: 'position', label: 'Position' },
@@ -733,8 +733,8 @@ function ModelProperties({
 
       <p className="text-[11px] text-muted-foreground">
         {isScale && scaleLocked
-          ? 'Ein Wert genügt — die anderen Achsen folgen im gleichen Verhältnis.'
-          : 'Zeigt die Werte des aktiven Werkzeugs — mit G (Verschieben), R (Rotieren) und S (Skalieren) umschalten.'}
+          ? 'Ein Wert genügt. Die anderen Achsen folgen im gleichen Verhältnis.'
+          : 'Zeigt die Werte des aktiven Werkzeugs. Mit G (Verschieben), R (Rotieren) und S (Skalieren) umschalten.'}
       </p>
     </>
   );
@@ -765,15 +765,17 @@ function KeyframeProperties({
 
       <div className="grid grid-cols-2 gap-1">
         <Button
-          variant={part === 'position' ? 'secondary' : 'outline'}
+          variant="outline"
           size="sm"
+          className={cn(part === 'position' && 'active-surface')}
           onClick={() => onSelectPart(keyframe.id, 'position')}
         >
           Kamera
         </Button>
         <Button
-          variant={part === 'lookAt' ? 'secondary' : 'outline'}
+          variant="outline"
           size="sm"
+          className={cn(part === 'lookAt' && 'active-surface')}
           onClick={() => onSelectPart(keyframe.id, 'lookAt')}
         >
           Blickpunkt
@@ -833,7 +835,7 @@ function KeyframeProperties({
       </div>
 
       <p className="text-[11px] text-muted-foreground">
-        Marker im Viewport per Verschieben-Gizmo ziehen — der rote Punkt ist die Kamera, der grüne
+        Marker im Viewport per Verschieben-Gizmo ziehen. Der rote Punkt ist die Kamera, der grüne
         der Blickpunkt.
       </p>
     </>

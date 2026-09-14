@@ -34,7 +34,7 @@ export function parseKeyframeRef(ref: string | null | undefined): { id: string; 
   return { id: ref.slice(0, at), part };
 }
 
-/** The two points a path segment interpolates — all `buildSplines` needs. */
+/** The two points a path segment interpolates. All `buildSplines` needs. */
 export type KeyframePose = Pick<Keyframe, 'position' | 'lookAt'>;
 
 export type CameraPathState = {

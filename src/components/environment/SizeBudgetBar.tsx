@@ -45,7 +45,7 @@ export function SizeBudgetBar({
   const shown = resultBytes ?? sourceBytes;
   const zone = budgetZone(shown);
   const description =
-    `Dateigröße ${formatBytes(shown)} – Bereich „${ZONE_LABEL[zone]}“. Empfehlung unter ${formatBytes(BUDGET_GOOD)}.`;
+    `Dateigröße ${formatBytes(shown)}. Bereich „${ZONE_LABEL[zone]}“. Empfehlung unter ${formatBytes(BUDGET_GOOD)}.`;
 
   return (
     <div className="space-y-1.5">
@@ -98,7 +98,7 @@ export function SizeBudgetBar({
         {ZONE_ORDER.slice(0, 3)
           .map((key) => ZONE_LABEL[key])
           .join(' · ')}{' '}
-        — Empfehlung fürs Web: unter 1 MB. Bis 3 MB ist vertretbar, darüber verlängert {subject} die
+        Empfehlung fürs Web: unter 1 MB. Bis 3 MB ist vertretbar, darüber verlängert {subject} die
         Ladezeit deutlich.
       </p>
     </div>

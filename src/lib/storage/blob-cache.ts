@@ -12,7 +12,7 @@ import { lookupAsset } from './client';
  * asset per browser and every consumer keeps working against IndexedDB.
  *
  * Resolving the public URL through the API rather than composing it here keeps
- * the delivery origin out of the client — moving from the CDN Worker to an R2
+ * the delivery origin out of the client. Moving from the CDN Worker to an R2
  * custom domain later changes nothing in the app.
  */
 export async function loadBlob(id: string, assetKey?: string): Promise<ArrayBuffer | null> {

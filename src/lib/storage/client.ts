@@ -39,8 +39,8 @@ function putWithProgress(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', signed.uploadUrl, true);
-    // Exactly the headers that were signed. Any deviation — including a missing
-    // one — makes R2 answer 403 SignatureDoesNotMatch. Content-Length is set by
+    // Exactly the headers that were signed. Any deviation. Including a missing
+    // one. Makes R2 answer 403 SignatureDoesNotMatch. Content-Length is set by
     // the browser from the body and is covered by the same signature, which is
     // what enforces the size ceiling server-side.
     for (const [name, value] of Object.entries(signed.headers)) {
@@ -74,7 +74,7 @@ function putWithProgress(
       reject(
         new ApiError(
           'network',
-          'Upload abgebrochen – Netzwerkfehler oder CORS-Regel des Buckets fehlt.',
+          'Upload abgebrochen. Netzwerkfehler oder CORS-Regel des Buckets fehlt.',
         ),
       );
     xhr.onabort = () => reject(new ApiError('network', 'Upload abgebrochen.'));
@@ -97,7 +97,7 @@ export async function uploadAsset(
   if (input.data.byteLength > MAX_UPLOAD_BYTES) {
     throw new ApiError(
       'too-large',
-      `Datei ist ${(input.data.byteLength / 1024 / 1024).toFixed(1)} MB groß – erlaubt sind ${MAX_UPLOAD_BYTES / 1024 / 1024} MB. Erst über „Optimieren“ verkleinern.`,
+      `Datei ist ${(input.data.byteLength / 1024 / 1024).toFixed(1)} MB groß. Erlaubt sind ${MAX_UPLOAD_BYTES / 1024 / 1024} MB. Erst über „Optimieren“ verkleinern.`,
     );
   }
 

@@ -1,5 +1,5 @@
 /**
- * Decodes JPEG/PNG/WebP into the canonical linear image. Browser-only —
+ * Decodes JPEG/PNG/WebP into the canonical linear image. Browser-only, because
  * `createImageBitmap` and a canvas do the actual decoding.
  */
 
@@ -8,7 +8,7 @@ import type { LinearImageF32 } from './types.ts';
 
 /**
  * iOS Safari caps total canvas area at roughly 16.7 Mpx (and older iOS at
- * 4096x4096). An oversized canvas does not throw — it returns blank pixels, so
+ * 4096x4096). An oversized canvas does not throw. It returns blank pixels, so
  * the environment silently comes out black. Reading in strips of at most this
  * many pixels is safe everywhere and doubles as the progress granularity.
  */

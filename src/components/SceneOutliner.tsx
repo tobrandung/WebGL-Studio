@@ -44,7 +44,7 @@ type ReorderItem = { id: string; groupId: string | null };
 
 /**
  * Kinds that can be selected in the editor. `keyframe` never originates from
- * the outliner — it travels the same channel so only one gizmo is ever active.
+ * the outliner. It travels the same channel so only one gizmo is ever active.
  */
 export type OutlinerSelectionKind = 'model' | 'light' | 'environment' | 'world' | 'keyframe';
 
@@ -642,7 +642,7 @@ export function SceneOutliner({
                     <CollapsibleContent>
                       <div className="ml-3 border-l border-border/60 pl-1">
                         {members.length === 0 ? (
-                          <p className="px-2 py-1 text-[11px] text-muted-foreground/70">Leer – Modelle hierher ziehen</p>
+                          <p className="px-2 py-1 text-[11px] text-muted-foreground/70">Leer. Modelle hierher ziehen</p>
                         ) : (
                           members.map(renderModelRow)
                         )}

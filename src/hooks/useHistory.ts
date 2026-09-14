@@ -29,7 +29,7 @@ const MAX_HISTORY = 50;
 const COALESCE_MS = 600;
 
 /**
- * Builds a command from a before/after value pair and a single applier —
+ * Builds a command from a before/after value pair and a single applier,
  * the shape almost every editor edit takes, so callers stay one-liners.
  */
 export function stateCommand<T>(options: {

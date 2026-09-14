@@ -24,7 +24,7 @@ export function useModels(projectId: string) {
       name?: string,
       /**
        * Initial transform. Written into the record rather than applied to the
-       * viewport group afterwards, because models are loaded asynchronously —
+       * viewport group afterwards, because models are loaded asynchronously, so
        * the group does not exist yet when the caller returns.
        */
       transform?: Pick<ModelEntry, 'position' | 'rotation' | 'scale'>,
@@ -94,7 +94,7 @@ export function useModels(projectId: string) {
     [load],
   );
 
-  /** The model's bytes, from IndexedDB or — for a synced project — the CDN. */
+  /** The model's bytes, from IndexedDB or, for a synced project, the CDN. */
   const getModelBlob = useCallback(async (id: string): Promise<ArrayBuffer | null> => {
     const db = await getDB();
     const record = await db.get('models', id);

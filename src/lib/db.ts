@@ -48,7 +48,7 @@ export type EnvironmentConfig = {
   blurriness?: number;
   /**
    * Which decoder the blob needs. Absent on records written before the
-   * converter existed — derive it from `fileName` via `formatFromFileName`.
+   * converter existed. Derive it from `fileName` via `formatFromFileName`.
    */
   format?: EnvironmentFormat;
   /** Byte length of the stored blob. Absent on older records. */
@@ -73,7 +73,7 @@ export type EnvironmentConfig = {
 /**
  * Which decoder a stored environment needs. Records written before the HDRI
  * converter existed carry no `format`; their extensions are unambiguous
- * (`.hdr`/`.exr`/`.png`/`.webp` — Ultra HDR did not exist yet), so deriving it
+ * (`.hdr`/`.exr`/`.png`/`.webp`. Ultra HDR did not exist yet), so deriving it
  * from the file name is correct for them and no migration is needed.
  */
 export function environmentFormat(env: EnvironmentConfig): EnvironmentFormat {
@@ -97,7 +97,7 @@ export type ModelEntry = {
   /**
    * Content-addressed key this model was published under, e.g.
    * `a/1a2b3c4d5e6f7a8b.glb`. Absent until the project is exported. Doubles as
-   * the CDN fallback when the local blob is gone — which is the case for every
+   * the CDN fallback when the local blob is gone. Which is the case for every
    * model in a project that was synced from another machine.
    */
   assetKey?: string;
@@ -118,7 +118,7 @@ export type KeyframeData = {
 };
 
 /**
- * Wie die Kamerafahrt abgespielt wird — im Export-Widget wie in der Vorschau.
+ * Wie die Kamerafahrt abgespielt wird. Im Export-Widget wie in der Vorschau.
  * Im Export-Dialog gewählt und dort sofort gespeichert, damit die Vorschau
  * dieselbe Fahrt zeigt wie das eingebettete Widget.
  */
@@ -128,7 +128,7 @@ export type CameraPath = {
   keyframes: KeyframeData[];
   isLoop: boolean;
   speed: number;
-  /** Fehlt bei Projekten aus der Zeit vor dieser Einstellung – dann 'scroll'. */
+  /** Fehlt bei Projekten aus der Zeit vor dieser Einstellung. Dann 'scroll'. */
   playbackMode?: PlaybackMode;
 };
 

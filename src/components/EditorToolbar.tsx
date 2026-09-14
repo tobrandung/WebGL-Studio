@@ -35,6 +35,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
 import type { TransformMode } from '@/three/viewport';
 import type { LightType } from '@/lib/db';
 import type { HistoryState } from '@/hooks/useHistory';
@@ -96,7 +97,7 @@ export function EditorToolbar({
       {saveStatus === 'dirty' && (
         <span className="inline-block h-2 w-2 rounded-full bg-orange-400" title="Ungespeicherte Änderungen" />
       )}
-      {/* Local save succeeded, the R2 copy did not — the work is safe in this
+      {/* Local save succeeded, the R2 copy did not. The work is safe in this
           browser but nowhere else, which is worth saying plainly. */}
       {saveStatus === 'offline' && (
         <span
@@ -142,7 +143,8 @@ export function EditorToolbar({
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant={transformMode === 'translate' ? 'secondary' : 'ghost'}
+            variant="ghost"
+            className={cn(transformMode === 'translate' && 'active-surface')}
             size="icon"
             onClick={() => onTransformModeChange('translate')}
             aria-label="Verschieben"
@@ -156,7 +158,8 @@ export function EditorToolbar({
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant={transformMode === 'rotate' ? 'secondary' : 'ghost'}
+            variant="ghost"
+            className={cn(transformMode === 'rotate' && 'active-surface')}
             size="icon"
             onClick={() => onTransformModeChange('rotate')}
             aria-label="Rotieren"
@@ -170,7 +173,8 @@ export function EditorToolbar({
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant={transformMode === 'scale' ? 'secondary' : 'ghost'}
+            variant="ghost"
+            className={cn(transformMode === 'scale' && 'active-surface')}
             size="icon"
             onClick={() => onTransformModeChange('scale')}
             aria-label="Skalieren"

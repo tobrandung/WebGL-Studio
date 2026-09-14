@@ -5,8 +5,8 @@ import { useEffect, useState, type RefObject } from 'react';
  * `grid-template-columns`.
  *
  * Cards stagger by their position within a row, so something has to know where
- * a row breaks. Reading it off the element keeps the breakpoints in one place —
- * the Tailwind classes on the grid — instead of mirroring them in a media
+ * a row breaks. Reading it off the element keeps the breakpoints in one place,
+ * the Tailwind classes on the grid, instead of mirroring them in a media
  * query here, where they would drift apart on the first layout change.
  */
 export function useGridColumns(ref: RefObject<HTMLElement | null>): number {

@@ -68,7 +68,7 @@ export function useProjects() {
    * Deletes the project locally and in R2.
    *
    * Both, because a local-only delete would leave the project showing up again
-   * under "Im Team-Speicher" — and because the remote copy is the shared one,
+   * under "Im Team-Speicher". And because the remote copy is the shared one,
    * this is destructive for colleagues too. The dashboard therefore asks first.
    *
    * Published assets are deliberately left in R2: they are content-addressed,

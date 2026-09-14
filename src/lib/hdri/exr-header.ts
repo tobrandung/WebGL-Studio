@@ -4,7 +4,7 @@
  *
  * The upload dialog needs width and height to show its size warning and pick a
  * recommendation. Decoding first would mean allocating up to 256 MB before we
- * can say "this file is too large" — which is exactly the case the warning
+ * can say "this file is too large". Which is exactly the case the warning
  * exists for. Pure, no imports.
  */
 

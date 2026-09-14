@@ -17,7 +17,7 @@ export const BUDGET_GOOD = 1024 * 1024;
  */
 export const BUDGET_OK = 3 * 1024 * 1024;
 
-/** jsDelivr refuses files above this with HTTP 403 — see ExportDialog. */
+/** jsDelivr refuses files above this with HTTP 403. See ExportDialog. */
 export const CDN_LIMIT = 20 * 1024 * 1024;
 
 export type BudgetZone = 'good' | 'ok' | 'large' | 'over-cdn';
@@ -70,7 +70,7 @@ export function budgetPosition(bytes: number): number {
  * Resolution thresholds, which matter independently of file size.
  *
  * Two reasons: an equirect costs `w * h * 8` bytes of VRAM as half-float RGBA
- * (8192x4096 = 256 MB, 16384x8192 = 1.07 GB — past `MAX_TEXTURE_SIZE` on many
+ * (8192x4096 = 256 MB, 16384x8192 = 1.07 GB. Past `MAX_TEXTURE_SIZE` on many
  * mobile GPUs, where the environment then renders black), and
  * `PMREMGenerator.fromEquirectangular` filters into a fixed 256-px-per-face
  * cubemap, so reflection quality saturates around 1024x512. Everything above

@@ -77,7 +77,7 @@ type ResolutionPreset = {
 };
 
 // Gängige Auflösungen als Obergrenze für den Render-Framebuffer. Full HD ist
-// die Voreinstellung – reicht für die meisten Web-Einbettungen und verhindert,
+// die Voreinstellung. Reicht für die meisten Web-Einbettungen und verhindert,
 // dass auf 4K/5K-Displays unnötig viele Pixel gerendert werden (Ruckeln).
 const RESOLUTION_PRESETS: ResolutionPreset[] = [
   { id: 'hd', label: 'HD (1280×720)', resolution: { width: 1280, height: 720 } },
@@ -160,7 +160,7 @@ export function ExportDialog({
   }, [open, storedMode, projectId]);
 
   /**
-   * Schreibt die Wahl sofort weg – ohne Speichern-Klick, sonst zeigt die
+   * Schreibt die Wahl sofort weg. Ohne Speichern-Klick, sonst zeigt die
    * Vorschau weiter die alte Abspielart. Read-modify-write direkt auf der DB,
    * damit parallel gehaltene Projektkopien nichts überschreiben.
    */
@@ -204,13 +204,15 @@ export function ExportDialog({
     null,
   );
   const [activeTab, setActiveTab] = useState<ExportTab>('display');
-  /** 1 = nach rechts, -1 = nach links – steuert die Slide-Richtung des Contents. */
+  /** 1 = nach rechts, -1 = nach links. Steuert die Slide-Richtung des Contents. */
   const [tabSlideDir, setTabSlideDir] = useState(1);
   const [panelHeight, setPanelHeight] = useState<number | undefined>(undefined);
   const [panelScrollable, setPanelScrollable] = useState(false);
   const [tabIndicator, setTabIndicator] = useState({ left: 0, width: 0 });
   const panelRef = useRef<HTMLDivElement>(null);
-  const tabsListRef = useRef<HTMLDivElement>(null);
+  // Callback-Ref statt useRef: Radix mountet den Dialog-Inhalt erst in einem
+  // späteren Commit, ein Layout-Effekt sähe hier also noch null.
+  const [tabsList, setTabsList] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open || !project) return;
@@ -221,7 +223,7 @@ export function ExportDialog({
       const all = await db.getAllFromIndex('models', 'by-project', project.id);
       setModels(all);
       // Deriving from the blob rather than only from `fileSize` keeps the number
-      // right for environments stored before that field existed — which is why
+      // right for environments stored before that field existed. Which is why
       // no record migration is needed.
       const env = project.environment;
       if (!env) {
@@ -246,7 +248,7 @@ export function ExportDialog({
    * Resolves which assets are already on the CDN.
    *
    * Content-addressed keys make this worth doing: an asset published in an
-   * earlier session — or from a colleague's machine — is still there, so the
+   * earlier session, or from a colleague's machine, is still there, so the
    * embed code can be copied straight away without pressing upload again. One
    * small request per asset, no bytes transferred.
    */
@@ -344,26 +346,34 @@ export function ExportDialog({
       ro.disconnect();
       window.removeEventListener('resize', onResize);
     };
-    // panelHeight absichtlich nicht in deps – sonst Endlosschleife.
+    // panelHeight absichtlich nicht in deps. Sonst Endlosschleife.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- height sync on tab/content change only
   }, [open, activeTab, exportMode, resolutionId, transparent, includeEnv, models, project?.environment, uploading, uploadLog, uploadError, folderStatus, envFolderStatus, assetUrls, progress, copied, envBytes]);
 
   // Sliding Pill unter dem aktiven Tab.
   useLayoutEffect(() => {
-    if (!open) return;
-    const list = tabsListRef.current;
-    if (!list) return;
+    if (!open || !tabsList) return;
+    const list = tabsList;
 
     const updateIndicator = () => {
       const active = list.querySelector<HTMLElement>('[data-state="active"]');
-      if (!active) return;
+      // Breite 0 heißt, die Liste ist noch nicht ausgemessen. Diesen Wert zu
+      // übernehmen hieße, den Indikator unsichtbar festzunageln.
+      if (!active || active.offsetWidth === 0) return;
       setTabIndicator({ left: active.offsetLeft, width: active.offsetWidth });
     };
 
-    // Ein Frame warten, damit data-state=active am DOM steht.
-    const id = requestAnimationFrame(updateIndicator);
-    return () => cancelAnimationFrame(id);
-  }, [open, activeTab]);
+    updateIndicator();
+    // Ein einzelner Frame reichte beim ersten Öffnen nicht: der Dialog hatte
+    // seine Breite noch nicht, die Messung ergab 0, und weil der Effekt nur an
+    // `open` und `activeTab` hängt, blieb der Indikator unsichtbar, bis ein
+    // Tab-Wechsel neu gemessen hat. Der Observer misst, sobald die Liste
+    // tatsächlich Platz bekommt, und hält den Indikator auch beim Skalieren
+    // des Fensters an der richtigen Stelle.
+    const observer = new ResizeObserver(updateIndicator);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [open, activeTab, tabsList]);
 
   const handleTabChange = useCallback((next: string) => {
     const nextTab = next as ExportTab;
@@ -377,7 +387,7 @@ export function ExportDialog({
   const scriptUrl = widgetScriptUrl();
   // Sprechender, dateisystem- und URL-sicherer Name: Modellname (slugifiziert,
   // gekürzt) + Erstell-Zeitstempel für Eindeutigkeit. Nur noch Anzeige- und
-  // Download-Name — die CDN-URL wird über den Content-Hash gebildet.
+  // Download-Name. Die CDN-URL wird über den Content-Hash gebildet.
   const modelFileName = (m: ModelEntry) =>
     `${slugify(m.name).slice(0, 40)}-${formatStamp(m.createdAt)}.${fileExtension(m.fileName)}`;
   const environment = project?.environment ?? null;
@@ -403,7 +413,7 @@ export function ExportDialog({
   const getEmbedCode = useCallback(() => {
     if (!project) return '';
     if (!embedReady) {
-      return '// Erst im Tab „Hosting" hochladen – danach steht hier der Embed-Code.';
+      return '// Erst im Tab „Hosting" hochladen. Danach steht hier der Embed-Code.';
     }
 
     const mappedModels = models.map((m) => ({
@@ -472,7 +482,7 @@ export function ExportDialog({
   var config = ${configStr};
   function boot() {
     if (!window.Web3DWidget) {
-      console.error('[Web3DWidget] Script nicht geladen – CDN nicht erreichbar oder von einem Blocker unterdrückt.');
+      console.error('[Web3DWidget] Script nicht geladen. CDN nicht erreichbar oder von einem Blocker unterdrückt.');
       return;
     }
     Web3DWidget.init('#web3d-widget', config);
@@ -532,7 +542,7 @@ export function ExportDialog({
       setFolderStatus(`${count} Modell(e) in „${projectSlug}/" gespeichert.`);
     } catch (err) {
       if ((err as DOMException)?.name === 'AbortError') return;
-      setFolderStatus('Speichern fehlgeschlagen – nutze stattdessen den Einzel-Download.');
+      setFolderStatus('Speichern fehlgeschlagen. Nutze stattdessen den Einzel-Download.');
     } finally {
       setSavingFolder(false);
     }
@@ -568,7 +578,7 @@ export function ExportDialog({
       setEnvFolderStatus(`Umgebung in „${projectSlug}/" gespeichert.`);
     } catch (err) {
       if ((err as DOMException)?.name === 'AbortError') return;
-      setEnvFolderStatus('Speichern fehlgeschlagen – nutze stattdessen den Download.');
+      setEnvFolderStatus('Speichern fehlgeschlagen. Nutze stattdessen den Download.');
     }
   }, [project, environment, projectSlug, envFileName]);
 
@@ -576,7 +586,7 @@ export function ExportDialog({
    * Publishes every asset of this project and records its public URL.
    *
    * Each file is hashed, checked against the CDN, and only transferred when it
-   * is genuinely new — so re-exporting after a tweak to the camera path uploads
+   * is genuinely new. So re-exporting after a tweak to the camera path uploads
    * nothing at all. The resulting `assetKey` is written back onto the record,
    * which is what lets the next open resolve URLs without hashing again and
    * what lets another machine load the project's models at all.
@@ -712,15 +722,19 @@ export function ExportDialog({
           className="flex min-h-0 flex-1 flex-col gap-0"
         >
           <div className="shrink-0 px-6 pt-4">
-            <TabsList ref={tabsListRef} className="relative">
-              <span
-                aria-hidden
-                className={cn(
-                  'pointer-events-none absolute top-1 bottom-1 rounded-md bg-background shadow-sm transition-[left,width]',
-                  DIALOG_TRANSITION,
-                )}
-                style={{ left: tabIndicator.left, width: tabIndicator.width }}
-              />
+            <TabsList ref={setTabsList} className="relative">
+              {/* Erst ab der ersten gültigen Messung im DOM, sonst würde der
+                  Indikator beim Öffnen sichtbar von Breite 0 aufziehen. */}
+              {tabIndicator.width > 0 && (
+                <span
+                  aria-hidden
+                  className={cn(
+                    'pointer-events-none absolute top-1 bottom-1 rounded-md bg-background shadow-sm transition-[left,width]',
+                    DIALOG_TRANSITION,
+                  )}
+                  style={{ left: tabIndicator.left, width: tabIndicator.width }}
+                />
+              )}
               <TabsTrigger
                 value="display"
                 className="relative z-10 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
@@ -762,7 +776,7 @@ export function ExportDialog({
                   tabSlideDir >= 0 ? 'slide-in-from-right-2' : 'slide-in-from-left-2',
                 )}
               >
-            {/* Tab 1 – Anzeige: rein visuelle/verhaltensbezogene Optionen. */}
+            {/* Tab 1. Anzeige: rein visuelle/verhaltensbezogene Optionen. */}
             {activeTab === 'display' && (
             <div className="space-y-6">
               <div className="space-y-2">
@@ -771,7 +785,8 @@ export function ExportDialog({
                   {EXPORT_MODES.map((m) => (
                     <Button
                       key={m.id}
-                      variant={exportMode === m.id ? 'default' : 'outline'}
+                      variant="outline"
+                      className={cn(exportMode === m.id && 'active-surface')}
                       size="sm"
                       onClick={() => void changeExportMode(m.id)}
                     >
@@ -810,14 +825,15 @@ export function ExportDialog({
                   <InfoHint>
                     Deckelt die interne Render-Auflösung. Das Widget füllt weiterhin den ganzen
                     Container (skaliert in der Größe mit), rendert aber nicht in nativer
-                    4K/5K-Pixelzahl – das verhindert Ruckeln auf hochauflösenden Displays.
+                    4K/5K-Pixelzahl. Das verhindert Ruckeln auf hochauflösenden Displays.
                   </InfoHint>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {RESOLUTION_PRESETS.map((preset) => (
                     <Button
                       key={preset.id}
-                      variant={resolutionId === preset.id ? 'default' : 'outline'}
+                      variant="outline"
+                      className={cn(resolutionId === preset.id && 'active-surface')}
                       size="sm"
                       onClick={() => setResolutionId(preset.id)}
                     >
@@ -845,7 +861,7 @@ export function ExportDialog({
             </div>
             )}
 
-            {/* Tab 2 – Hosting: Upload ins CDN und die Asset-Dateien. */}
+            {/* Tab 2. Hosting: Upload ins CDN und die Asset-Dateien. */}
             {activeTab === 'hosting' && (
             <div className="space-y-6">
               {!hostingOn ? (
@@ -871,7 +887,7 @@ export function ExportDialog({
                         ? `„${oversized[0]}" ist größer als ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`
                         : `${oversized.length} Dateien sind größer als ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`}{' '}
                       und können nicht veröffentlicht werden. Im Szenenbaum über das Menü des
-                      Modells „Optimieren“ ausführen – WebP-Texturen und Draco-Geometrie bringen
+                      Modells „Optimieren“ ausführen. WebP-Texturen und Draco-Geometrie bringen
                       ein solches Modell in der Regel deutlich darunter.
                     </Notice>
                   )}
@@ -938,13 +954,13 @@ export function ExportDialog({
 
                   {embedReady && !uploading && (
                     <p className="text-xs text-green-400">
-                      Alle Assets veröffentlicht – der Embed-Code im nächsten Tab ist fertig.
+                      Alle Assets veröffentlicht. Der Embed-Code im nächsten Tab ist fertig.
                     </p>
                   )}
                   {!scriptUrl && (
                     <Notice variant="warning">
                       Das Widget-Bundle ist noch nicht veröffentlicht. Einmal{' '}
-                      <code>npm run publish:widget</code> ausführen – danach steht seine URL fest
+                      <code>npm run publish:widget</code> ausführen. Danach steht seine URL fest
                       und ältere Embeds bleiben auf ihrer Version.
                     </Notice>
                   )}
@@ -959,7 +975,7 @@ export function ExportDialog({
                     <Label>Modelle</Label>
                     <InfoHint label="Ablage-Hinweis">
                       Veröffentlichen erledigt der Button oben. Der Download hier ist für den Fall,
-                      dass eine Datei in ein fremdes Hosting soll – etwa Webflow Assets – oder du
+                      dass eine Datei in ein fremdes Hosting soll, etwa Webflow Assets, oder du
                       sie archivieren willst.
                     </InfoHint>
                   </div>
@@ -1041,7 +1057,7 @@ export function ExportDialog({
                         <strong>Diese Umgebung ist ein Ultra HDR JPEG.</strong> Nur ein Widget-Build
                         ab Version {widgetRelease().version ?? '–'} liest sie mit vollem
                         HDR-Bereich. Bereits eingebettete, ältere Widgets zeigen weiterhin die
-                        flachere SDR-Basis – sie sind auf ihre Bundle-Version gepinnt.
+                        flachere SDR-Basis. Sie sind auf ihre Bundle-Version gepinnt.
                       </Notice>
                     )}
                     {supportsFsAccess && (
@@ -1057,19 +1073,19 @@ export function ExportDialog({
             </div>
             )}
 
-            {/* Tab 3 – Embed-Code: das finale Deliverable mit primärer Kopieren-Aktion. */}
+            {/* Tab 3. Embed-Code: das finale Deliverable mit primärer Kopieren-Aktion. */}
             {activeTab === 'embed' && (
             <div className="space-y-3">
               {!embedReady && (
                 <Notice variant="warning">
                   {models.length === 0
-                    ? 'Dieses Projekt hat kein Modell – es gibt nichts einzubetten.'
+                    ? 'Dieses Projekt hat kein Modell. Es gibt nichts einzubetten.'
                     : !scriptUrl
                       ? 'Das Widget-Bundle ist noch nicht veröffentlicht. Einmal npm run publish:widget ausführen.'
                       : `Noch nicht veröffentlicht: ${[
                           ...pendingModels.map((m) => m.name),
                           ...(envPending ? ['HDRI / Umgebung'] : []),
-                        ].join(', ')}. Im Tab „Hosting" veröffentlichen – erst dann enthält das Snippet echte URLs.`}
+                        ].join(', ')}. Im Tab „Hosting" veröffentlichen. Erst dann enthält das Snippet echte URLs.`}
                 </Notice>
               )}
               <Button className="w-full" disabled={!embedReady} onClick={handleCopy}>

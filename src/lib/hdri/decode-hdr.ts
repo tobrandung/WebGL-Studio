@@ -1,6 +1,6 @@
 /**
  * Decodes `.exr` and `.hdr` into the canonical `LinearImage`. Runs unchanged in
- * the browser, in a Web Worker and in Node — `parse()` on three's data-texture
+ * the browser, in a Web Worker and in Node, `parse()` on three's data-texture
  * loaders is a pure function over an ArrayBuffer with no DOM access.
  */
 
@@ -10,7 +10,7 @@ import type { LinearImage } from './types.ts';
 
 /**
  * Up to this many pixels the decode uses Float32 (4096x2048 -> 128 MB), above it
- * half-float (which halves the footprint and clips at 65504 — measured at 0.93 %
+ * half-float (which halves the footprint and clips at 65504. Measured at 0.93 %
  * of total irradiance on the worst of the sample HDRIs, a bare sun disc).
  */
 export const FLOAT_DECODE_PIXEL_LIMIT = 8_400_000;

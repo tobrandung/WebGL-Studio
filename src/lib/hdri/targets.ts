@@ -41,7 +41,7 @@ export const FORMAT_LABEL: Record<TargetFormat, string> = {
 export const FORMAT_HINT: Record<TargetFormat, string> = {
   hdr: 'Echter HDR-Bereich, wird von jedem Widget-Stand gelesen. Die sichere Wahl, aber die größte Datei.',
   ultrahdr:
-    'Echter HDR-Bereich bei etwa einem Zwanzigstel der Dateigröße. Braucht einen neu gebauten Widget-Build – bereits eingebettete Widgets zeigen sonst nur die flache SDR-Basis.',
+    'Echter HDR-Bereich bei etwa einem Zwanzigstel der Dateigröße. Braucht einen neu gebauten Widget-Build. Bereits eingebettete Widgets zeigen sonst nur die flache SDR-Basis.',
   webp: 'Kleinste Datei, aber ohne HDR-Bereich: Lichter werden abgeschnitten, Spiegelungen wirken flacher. Gut für unscharfe Hintergründe.',
 };
 
@@ -72,7 +72,7 @@ export type Recommendation = {
  * the only format every widget build ever shipped decodes at full HDR fidelity,
  * at the resolution where PMREM saturates.
  *
- * A visible background needs 2K to look sharp, and `.hdr` at 2K is 5-7 MB —
+ * A visible background needs 2K to look sharp, and `.hdr` at 2K is 5-7 MB, and
  * recommending that would contradict the entire point of this dialog. Ultra HDR
  * is the only format that delivers 2K *with* HDR range inside the budget, so
  * that is the recommendation there, caveat and all.
@@ -86,7 +86,7 @@ export function recommendTarget(input: RecommendationInput): Recommendation {
     const width = pick(2048);
     return {
       key: targetKey('webp', width),
-      reason: `Empfohlen: WebP, ${width} × ${width / 2} – die Quelle ist ohnehin ein SDR-Bild, HDR-Formate würden sie nur größer machen.`,
+      reason: `Empfohlen: WebP, ${width} × ${width / 2}. Die Quelle ist ohnehin ein SDR-Bild, HDR-Formate würden sie nur größer machen.`,
     };
   }
 
@@ -94,9 +94,9 @@ export function recommendTarget(input: RecommendationInput): Recommendation {
     const width = pick(2048);
     return {
       key: targetKey('ultrahdr', width),
-      reason: `Empfohlen: Ultra HDR, ${width} × ${width / 2}, weil diese Umgebung als sichtbarer Hintergrund läuft – als .hdr wären das 5–7 MB.`,
+      reason: `Empfohlen: Ultra HDR, ${width} × ${width / 2}, weil diese Umgebung als sichtbarer Hintergrund läuft. Als .hdr wären das 5–7 MB.`,
       // Same resolution as the recommendation, so its measured size comes out
-      // of the same job — and seeing what .hdr costs at 2K is precisely the
+      // of the same job. And seeing what .hdr costs at 2K is precisely the
       // argument for Ultra HDR.
       alternative: {
         key: targetKey('hdr', width),
@@ -107,7 +107,7 @@ export function recommendTarget(input: RecommendationInput): Recommendation {
 
   return {
     key: targetKey('hdr', 1024),
-    reason: 'Empfohlen: .hdr, 1024 × 512 – reicht für Spiegelungen und läuft mit jedem Widget-Build.',
+    reason: 'Empfohlen: .hdr, 1024 × 512. Reicht für Spiegelungen und läuft mit jedem Widget-Build.',
     // Deliberately the same resolution as the recommendation: one job encodes
     // every format at one resolution, so this size is already measured, and a
     // pure format comparison is the one users actually want.

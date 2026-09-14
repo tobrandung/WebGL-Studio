@@ -10,13 +10,13 @@
  * than something the client promises.
  *
  * The payoff of addressing by content is unchanged: re-exporting an unchanged
- * project uploads nothing and invalidates nothing — same bytes, same key,
+ * project uploads nothing and invalidates nothing. Same bytes, same key,
  * already cached at the edge.
  */
 export type ContentAddress = {
   /** Storage key, e.g. `a/1a2b3c4d5e6f7a8b.glb`. */
   key: string;
-  /** Full SHA-256 as base64 — the wire format of `x-amz-checksum-sha256`. */
+  /** Full SHA-256 as base64. The wire format of `x-amz-checksum-sha256`. */
   checksum: string;
 };
 

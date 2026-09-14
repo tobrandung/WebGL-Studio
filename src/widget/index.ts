@@ -55,7 +55,7 @@ type WidgetConfig = {
   environment?: EnvironmentWidgetConfig;
   /**
    * Deckelt die interne Render-Auflösung (Framebuffer), z. B. auf Full HD.
-   * Die CSS-Größe bleibt unberührt – das Modell skaliert weiter mit dem
+   * Die CSS-Größe bleibt unberührt. Das Modell skaliert weiter mit dem
    * Container, es wird nur nicht in nativer 4K/5K-Pixelzahl gerendert.
    * `null`/undefined = unbegrenzt (nur devicePixelRatio-Cap greift).
    */
@@ -108,7 +108,7 @@ function init(selector: string, config: WidgetConfig) {
 
   if (config.keyframes.length < 2) {
     console.warn(
-      '[Web3DWidget] Weniger als 2 Keyframes – es findet keine Kamerafahrt statt. ' +
+      '[Web3DWidget] Weniger als 2 Keyframes. Es findet keine Kamerafahrt statt. ' +
         'Erstelle im Editor mindestens 2 Keyframes und exportiere erneut.',
     );
   }
@@ -191,7 +191,7 @@ function init(selector: string, config: WidgetConfig) {
 
   // Sucht ab dem Container aufwärts das erste `position: sticky`-Element. So
   // funktioniert der Scroll unabhängig davon, wie die Divs in Webflow
-  // verschachtelt sind – der Nutzer muss nur irgendwo Sticky setzen.
+  // verschachtelt sind. Der Nutzer muss nur irgendwo Sticky setzen.
   function findStickyAncestor(start: HTMLElement | null): HTMLElement | null {
     let el: HTMLElement | null = start;
     while (el && el !== document.body) {

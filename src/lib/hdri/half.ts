@@ -23,8 +23,8 @@ let lut: Float32Array | null = null;
 /**
  * Full 65536-entry half -> float table, built on first use (256 KB).
  *
- * The resampler hits this once per component per source pixel — 100M times for
- * an 8K image — so a table lookup rather than the bit twiddling above is worth
+ * The resampler hits this once per component per source pixel, 100M times for
+ * an 8K image. So a table lookup rather than the bit twiddling above is worth
  * the allocation.
  */
 export function halfToFloatTable(): Float32Array {

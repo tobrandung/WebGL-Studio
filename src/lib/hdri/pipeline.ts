@@ -22,7 +22,7 @@ export type ProbeInfo = {
 /**
  * Reads the dimensions out of the file header, decoding nothing.
  *
- * Returns null for SDR inputs, whose size only a real image decoder knows — the
+ * Returns null for SDR inputs, whose size only a real image decoder knows. The
  * browser path uses `createImageBitmap` for those. `head` only needs to cover
  * the header; 64 KB is plenty.
  */

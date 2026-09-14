@@ -2,7 +2,7 @@
  * Side-by-side renderer for the optimize dialog: the original on the left,
  * the compressed result on the right, from the same camera.
  *
- * One canvas, one renderer, two scissored viewports — not two renderers. Two
+ * One canvas, one renderer, two scissored viewports. Not two renderers. Two
  * would mean two WebGL contexts on top of the editor's, browsers cap the
  * total around eight to sixteen and evict the oldest, so opening and closing
  * this dialog enough times would kill the main viewport. Sharing one camera
@@ -23,7 +23,7 @@ import { disposeObject3D } from './dispose';
 export type CompareView = {
   /** Replaces one side's model. Pass null to clear it. */
   setModel: (side: 'a' | 'b', buffer: ArrayBuffer | null) => Promise<void>;
-  /** 0..1 — where the split sits, as a fraction of the canvas width. */
+  /** 0..1. Where the split sits, as a fraction of the canvas width. */
   setSplit: (fraction: number) => void;
   resize: () => void;
   render: () => void;
@@ -32,7 +32,7 @@ export type CompareView = {
 
 /**
  * Loads a GLB without touching any editor state. Mirrors the loader setup in
- * `viewport.ts` — including KTX2, because a source model may already carry
+ * `viewport.ts`. Including KTX2, because a source model may already carry
  * KTX2 textures and the left-hand side has to show it as it is.
  */
 async function loadPreviewModel(
@@ -43,7 +43,7 @@ async function loadPreviewModel(
   const draco = new DRACOLoader();
   draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
   // The compressed side is Draco whenever the option is on, so the decoder is
-  // needed on nearly every rebuild — warming it up front avoids a stall.
+  // needed on nearly every rebuild. Warming it up front avoids a stall.
   draco.preload();
   loader.setDRACOLoader(draco);
 
@@ -66,7 +66,7 @@ async function loadPreviewModel(
  * Creates its own canvas inside `container` rather than taking one from React.
  *
  * `forceContextLoss()` on teardown makes that canvas element permanently
- * unusable — a later `getContext` on it returns a broken context whose
+ * unusable. A later `getContext` on it returns a broken context whose
  * `getShaderPrecisionFormat` is null. Under React's StrictMode, which mounts
  * every effect twice in development, a React-owned canvas would therefore be
  * dead on the second mount. Owning the element means teardown throws it away
@@ -97,7 +97,7 @@ export function createCompareView(container: HTMLElement): CompareView {
 
   // A fixed neutral environment, not the project's lights: those are editable,
   // and a comparison has to isolate what compression changed. The same PMREM
-  // texture serves both scenes — textures, unlike Object3Ds, can be shared.
+  // texture serves both scenes. Textures, unlike Object3Ds, can be shared.
   const pmrem = new THREE.PMREMGenerator(renderer);
   // RoomEnvironment is a Scene full of meshes and has no dispose of its own;
   // once the PMREM is baked its geometries and materials are dead weight that
@@ -163,7 +163,7 @@ export function createCompareView(container: HTMLElement): CompareView {
     // `setSize(…, false)` because the canvas is sized by CSS; writing inline
     // styles here would override the layout and freeze the ResizeObserver.
     renderer.setSize(width, height, false);
-    // setViewport/setScissor take CSS pixels — three applies the pixel ratio
+    // setViewport/setScissor take CSS pixels. Three applies the pixel ratio
     // itself. Pre-multiplying here doubles every rectangle on a retina screen,
     // which spills the left half across the whole canvas.
     const left = Math.round(width * split);

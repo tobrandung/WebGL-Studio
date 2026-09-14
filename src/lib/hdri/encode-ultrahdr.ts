@@ -3,8 +3,8 @@
  * gain map in its MPF container, which three's `UltraHDRLoader` reconstructs
  * back to linear HDR data.
  *
- * This is the smallest format that keeps real highlight range — roughly 0.5-0.9
- * MB at 2048x1024 against 5.4 MB for the equivalent Radiance file — and it
+ * This is the smallest format that keeps real highlight range. Roughly 0.5-0.9
+ * MB at 2048x1024 against 5.4 MB for the equivalent Radiance file. And it
  * degrades to its plain SDR base in any decoder that does not know about gain
  * maps.
  *
@@ -30,7 +30,7 @@ export type EncodeUltraHDROptions = {
 /** Builds the RGBA float `DataTexture` the encoder expects. */
 function toDataTexture(image: LinearImageF32): THREE.DataTexture {
   const { width, height, data } = image;
-  // RGBA is mandatory — three removed RGBFormat in r137.
+  // RGBA is mandatory. Three removed RGBFormat in r137.
   const rgba = new Float32Array(width * height * 4);
   for (let p = 0, src = 0, dst = 0; p < width * height; p++, src += 3, dst += 4) {
     rgba[dst] = data[src];

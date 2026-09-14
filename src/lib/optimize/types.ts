@@ -38,7 +38,7 @@ export const NORMAL_MAP_MIN_QUALITY = 0.95;
  * Occlusion/roughness/metalness maps pack three unrelated values into R, G
  * and B. WebP subsamples chroma, so the channels bleed into one another and
  * roughness picks up the ambient-occlusion pattern. Less sensitive than a
- * normal map, but still not a picture — it gets a floor of its own.
+ * normal map, but still not a picture. It gets a floor of its own.
  */
 export const DATA_MAP_MIN_QUALITY = 0.9;
 
@@ -53,7 +53,7 @@ export type OptimizeProgress = {
   label: string;
 };
 
-/** What one texture costs, before and after — the basis for the UI breakdown. */
+/** What one texture costs, before and after. The basis for the UI breakdown. */
 export type TextureReport = {
   index: number;
   name: string;
@@ -63,7 +63,7 @@ export type TextureReport = {
   height: number;
   /** Bytes in the container. */
   size: number;
-  /** Decoded RGBA bytes incl. mipmaps — what the texture costs in VRAM. */
+  /** Decoded RGBA bytes incl. mipmaps. What the texture costs in VRAM. */
   gpuSize: number;
 };
 
@@ -73,7 +73,7 @@ export type MeshReport = {
   glPrimitives: number;
   primitives: number;
   attributes: string[];
-  /** Decoded accessor bytes — NOT what the mesh occupies in a Draco file. */
+  /** Decoded accessor bytes. NOT what the mesh occupies in a Draco file. */
   decodedSize: number;
 };
 
@@ -88,7 +88,7 @@ export type MeshReport = {
  */
 export type SourceAnalysis = {
   fileSize: number;
-  /** Sum of the embedded image buffers — exactly what the texture pass edits. */
+  /** Sum of the embedded image buffers. Exactly what the texture pass edits. */
   textureBytes: number;
   /** Everything left in the BIN chunk: geometry and animation, as stored. */
   geometryBytes: number;

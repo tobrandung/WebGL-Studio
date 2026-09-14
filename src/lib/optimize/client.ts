@@ -3,7 +3,7 @@
  *
  * Unlike the HDRI converter this is a *session*, not a one-shot call: the
  * worker keeps the parsed Document alive so changing a setting re-runs only
- * the passes that changed. The session owns the worker's lifetime — `close()`
+ * the passes that changed. The session owns the worker's lifetime, `close()`
  * terminates it, which is both the cancellation mechanism and the only
  * reliable way to release its heap.
  */
@@ -32,7 +32,7 @@ export class OptimizeSession {
 
   /**
    * Parses the GLB and returns its byte accounting. The buffer is transferred,
-   * so the caller must not keep using it — a second copy of a 50 MB model on
+   * so the caller must not keep using it. A second copy of a 50 MB model on
    * the main thread is exactly what this avoids.
    */
   async open(buffer: ArrayBuffer): Promise<SourceAnalysis> {

@@ -1,5 +1,5 @@
 /**
- * Streaming equirectangular box resampler. Pure — shared byte-for-byte between
+ * Streaming equirectangular box resampler. Pure. Shared byte-for-byte between
  * the in-app converter and the Node preset script.
  *
  * Exact area averaging, one destination row at a time. Two reasons for that
@@ -11,8 +11,8 @@
  *   disc it randomly hits or misses, so the same source converted twice at
  *   slightly different sizes can differ by an EV in total irradiance.
  * - **Memory.** Materialising a `dstWidth x srcHeight` intermediate costs 96 MB
- *   for an 8K source. Working row by row needs `ceil(sy) + 2` cached lines —
- *   110 KB — and lets the half-to-float conversion fold into the horizontal
+ *   for an 8K source. Working row by row needs `ceil(sy) + 2` cached lines,
+ *   110 KB, and lets the half-to-float conversion fold into the horizontal
  *   pass, so a full-resolution Float32 copy never exists.
  *
  * The compute is not the bottleneck either way: 8K -> 1K measures ~96 ms against
@@ -117,7 +117,7 @@ function horizontalLine(
 /**
  * Writes destination row `dstY` (3 interleaved floats per pixel) into `out` at
  * `outOffset`. `scratch` must come from `createScratch` for the same geometry
- * and be reused across rows — that reuse is what keeps overlapping source rows
+ * and be reused across rows. That reuse is what keeps overlapping source rows
  * from being resampled twice.
  */
 export function resampleRow(

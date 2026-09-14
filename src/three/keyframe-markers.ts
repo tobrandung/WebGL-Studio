@@ -12,7 +12,7 @@ import {
  *
  * Unlike a rebuild-on-change approach this reconciles per keyframe id (same
  * shape as `syncLights`) and updates buffers in place. That matters because the
- * transform gizmo attaches to a marker mesh — recreating the meshes on every
+ * transform gizmo attaches to a marker mesh. Recreating the meshes on every
  * change would tear the gizmo's target away mid-drag.
  */
 
@@ -43,7 +43,7 @@ const SELECTED_COLOR = 0xffd23f;
 const CONNECTOR_COLOR = 0xffff44;
 const SPLINE_COLOR = 0x00aaff;
 
-// Shared across every marker and never disposed — geometry is cheap, and
+// Shared across every marker and never disposed. Geometry is cheap, and
 // reusing it keeps adding/removing keyframes free of GPU churn. Highlighting
 // scales the mesh rather than swapping geometry.
 const POSITION_GEOMETRY = new THREE.SphereGeometry(0.08, 16, 12);

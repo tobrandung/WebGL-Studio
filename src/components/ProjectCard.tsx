@@ -90,7 +90,7 @@ export function ProjectCard({
     >
       {/* A ring rather than a border: it is drawn outside the box, so it does
           not sit between the card edge and the 16px padding the way a border
-          would — content stays a clean 16 from the edge it is measured against. */}
+          would. Content stays a clean 16 from the edge it is measured against. */}
       <Card
         // `--glass-tint` hebt die Card vom Seitenhintergrund ab, statt sie wie
         // Toolbar und Dialoge mit ihm verschmelzen zu lassen.
@@ -123,7 +123,7 @@ export function ProjectCard({
             initial={reduceMotion ? false : { opacity: 0, scale: 0.6 }}
             animate={isInView ? { opacity: 1, scale: 1 } : {}}
             transition={{ type: 'spring', stiffness: 260, damping: 16, delay: stagger + 0.25 }}
-            className="absolute left-4 top-4 rounded-lg bg-card/90 px-2 py-1 text-xs font-medium tabular-nums text-foreground backdrop-blur-sm"
+            className="absolute left-4 top-4 rounded-lg bg-card/90 px-2 py-1 text-xs font-medium tabular-nums text-foreground ring-1 ring-inset ring-border backdrop-blur-sm"
           >
             {formattedDate}
           </motion.span>

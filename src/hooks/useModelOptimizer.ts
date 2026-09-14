@@ -17,7 +17,7 @@ import {
 const MEASURE_DEBOUNCE_MS = 600;
 
 /**
- * The preview costs a real `writeBinary()` — Draco included — plus a full
+ * The preview costs a real `writeBinary()`, Draco included, plus a full
  * decode into a second live scene, so it waits noticeably longer than the
  * number does. A size that lags by a second is annoying; a 3D rebuild that
  * fires mid-drag is what makes a dialog feel broken.
@@ -51,7 +51,7 @@ export type ModelOptimizer = {
  *
  * The worker keeps the parsed Document alive, so a settings change costs only
  * the passes that actually changed rather than another parse. Runs are
- * serialised — a run started while one is in flight waits for it, and only the
+ * serialised. A run started while one is in flight waits for it, and only the
  * newest settings are ever measured, so dragging a slider cannot queue up a
  * backlog of stale jobs.
  */
@@ -122,7 +122,7 @@ export function useModelOptimizer(
     queueRef.current = queueRef.current
       .catch(() => undefined)
       .then(async () => {
-        // A newer change arrived while this one waited — drop it rather than
+        // A newer change arrived while this one waited. Drop it rather than
         // measuring settings the user has already moved past.
         if (tokenRef.current !== token) return;
         try {
@@ -203,7 +203,7 @@ export function useModelOptimizer(
     [measure, buildPreview, previewEnabled],
   );
 
-  // First measurement as soon as the document is open — no debounce, the user
+  // First measurement as soon as the document is open. No debounce, the user
   // has not touched anything yet.
   const openedRef = useRef(false);
   useEffect(() => {

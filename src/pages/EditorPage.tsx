@@ -188,7 +188,7 @@ export function EditorPage() {
   const [background, setBackground] = useState('#1a1a1a');
   // The live viewport instance kept in state (not just the ref) so that effects
   // which populate it (models, lights, environment) re-run and target the exact
-  // instance — critical under React StrictMode's mount/cleanup/mount cycle where
+  // instance. Critical under React StrictMode's mount/cleanup/mount cycle where
   // two viewports are briefly created on the same canvas.
   const [viewport, setViewport] = useState<ViewportContext | null>(null);
 
@@ -264,7 +264,7 @@ export function EditorPage() {
 
   /**
    * Reads the model's transform back out of the scene graph. Falls back to the
-   * persisted record while a freshly added model's async load is still running —
+   * persisted record while a freshly added model's async load is still running.
    * `loadModelFromBuffer` seeds the group from exactly those values, so the
    * fields never show anything the scene disagrees with.
    */
@@ -331,7 +331,7 @@ export function EditorPage() {
     });
 
     // Bracket each gizmo drag with a before/after snapshot so a transform is a
-    // single undo step — without this the drag only marked the project dirty
+    // single undo step. Without this the drag only marked the project dirty
     // and undo fell through to whatever command came before it.
     ctx.transformControls.addEventListener('dragging-changed', (event) => {
       const sel = selectionRef.current;
@@ -388,7 +388,7 @@ export function EditorPage() {
   useEffect(() => {
     if (!viewport || selectedKind !== 'keyframe' || !selectedId) return;
     const marker = findKeyframeMarker(viewport.keyframeMarkers, selectedId);
-    // Skip while it is already attached — re-attaching on every drag frame
+    // Skip while it is already attached. Re-attaching on every drag frame
     // would be pure churn.
     if (!marker || viewport.transformControls.object === marker) return;
     selectObject(viewport, selectedId, 'keyframe');
@@ -417,7 +417,7 @@ export function EditorPage() {
   // identity and the two structural toggles rather than on `environment` as a
   // whole: `handleUpdateEnvironment` produces a new object per patch, so
   // depending on it re-read the blob from IndexedDB and re-ran PMREM on every
-  // slider tick — 100-400 ms each with a 4K HDRI. Intensity and blurriness are
+  // slider tick, 100-400 ms each with a 4K HDRI. Intensity and blurriness are
   // pure scene scalars and are handled by the effect below instead.
   useEffect(() => {
     const ctx = viewport;
@@ -482,7 +482,7 @@ export function EditorPage() {
 
   // Load models into the viewport. Keyed on the `viewport` instance so models
   // fetched from IndexedDB before the viewport exists (or after it is recreated)
-  // are loaded into the *live* instance — otherwise reopening a project, or the
+  // are loaded into the *live* instance. Otherwise reopening a project, or the
   // StrictMode remount, leaves the async load targeting a discarded viewport and
   // the scene appears empty. The cleanup cancels an in-flight load on swap.
   useEffect(() => {
@@ -638,7 +638,7 @@ export function EditorPage() {
     setSelectedId(nextId);
     setSelectedKind(kind);
     // Lights and path markers are translate-only, and `selectObject` forces the
-    // gizmo accordingly — mirror that in the toolbar so the button (and the
+    // gizmo accordingly. Mirror that in the toolbar so the button (and the
     // properties panel, which follows the mode) cannot claim rotate/scale.
     if (kind === 'light' || kind === 'keyframe') setTransformModeState('translate');
     if (!ctx) return;
@@ -826,7 +826,7 @@ export function EditorPage() {
     }
 
     // Mirror into R2. The local write above has already happened, so a failure
-    // here costs durability and hand-off, not the user's work — which is why it
+    // here costs durability and hand-off, not the user's work. Which is why it
     // downgrades the indicator instead of throwing.
     try {
       const modelRecords = await db.getAllFromIndex('models', 'by-project', id);
@@ -851,8 +851,8 @@ export function EditorPage() {
   /**
    * Resolves a save conflict, explicitly and in one direction or the other.
    *
-   * There is no automatic merge to be had here — two people moved the same
-   * camera — so the only honest options are to take theirs or keep yours, and
+   * There is no automatic merge to be had here. Two people moved the same
+   * camera. So the only honest options are to take theirs or keep yours, and
    * the user has to say which. Without this the editor would sit on "Konflikt"
    * forever: reloading re-reads IndexedDB, which is exactly the version that was
    * refused.
@@ -875,7 +875,7 @@ export function EditorPage() {
             remote: { etag, syncedAt: Date.now(), author: '' },
           });
           // Models the other version dropped have to go, or the scene would show
-          // a union of both edits — which is neither version.
+          // a union of both edits. Which is neither version.
           for (const model of existingModels) {
             if (!incoming.has(model.id)) await tx.objectStore('models').delete(model.id);
           }
@@ -931,7 +931,7 @@ export function EditorPage() {
   const handleUpload = useCallback(
     async (file: File) => {
       const newModel = await addModel(file);
-      // The record already exists, so only record it — executing again would
+      // The record already exists, so only record it. Executing again would
       // duplicate the write.
       pushCommand(makeModelAddCommand(newModel, `"${newModel.name}" hinzufügen`));
     },
@@ -981,8 +981,8 @@ export function EditorPage() {
   );
 
   /**
-   * Swaps the file behind a model — the same asset with textures, or a
-   * compressed build — while its name, transform and outliner slot stay put.
+   * Swaps the file behind a model. The same asset with textures, or a
+   * compressed build. While its name, transform and outliner slot stay put.
    * Both buffers are parked under throwaway blob ids so undo/redo can move
    * either one back into place without carrying them in the history stack.
    */
@@ -1021,7 +1021,7 @@ export function EditorPage() {
 
   /**
    * Opens the optimize dialog for a model, handing it a copy of the stored
-   * GLB. A copy, because the worker takes ownership of whatever it is given —
+   * GLB. A copy, because the worker takes ownership of whatever it is given, and
    * transferring the cached blob would detach the buffer IndexedDB handed us.
    */
   const handleOpenOptimize = useCallback(async (modelId: string) => {
@@ -1034,7 +1034,7 @@ export function EditorPage() {
 
   /**
    * Optimizing a file on the way in, before it is ever stored. The upload
-   * dialog cannot host this itself — its submit is fire-and-forget — so it
+   * dialog cannot host this itself, its submit is fire-and-forget, so it
    * hands the file over and the optimize dialog finishes the import.
    */
   const handleOptimizeUpload = useCallback(async (file: File) => {
@@ -1070,7 +1070,7 @@ export function EditorPage() {
       // Replacing parks the original for undo, so it briefly holds the source
       // twice plus the result twice. Quota failures in IndexedDB surface as an
       // opaque abort mid-transaction, which would leave the model pointing at
-      // nothing — better to say so before starting.
+      // nothing. Better to say so before starting.
       const needed = current.data.byteLength * 2 + buffer.byteLength * 2;
       const quota = await navigator.storage?.estimate?.().catch(() => null);
       if (quota?.quota && quota.usage !== undefined && quota.quota - quota.usage < needed) {
@@ -1216,7 +1216,7 @@ export function EditorPage() {
     [runCommand],
   );
 
-  // Collapsing is a view preference, not an edit — kept out of the undo stack.
+  // Collapsing is a view preference, not an edit. Kept out of the undo stack.
   const handleToggleGroupCollapsed = useCallback(
     (groupId: string) => {
       setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, collapsed: !g.collapsed } : g)));
@@ -1359,7 +1359,7 @@ export function EditorPage() {
             blobId,
             fileName: result.file.name,
             // Replacing the image must not throw away the dome, intensity and
-            // blur the user set up — "Bild ersetzen" from the properties panel
+            // blur the user set up, "Bild ersetzen" from the properties panel
             // runs through here too.
             showBackground: before?.showBackground ?? false,
             useForReflection: before?.useForReflection ?? true,
@@ -1654,7 +1654,7 @@ export function EditorPage() {
 
   const handleTransformModeChange = useCallback((mode: TransformMode) => {
     const ctx = viewportRef.current;
-    // Lights and keyframe markers reject rotate/scale — don't light up a
+    // Lights and keyframe markers reject rotate/scale. Don't light up a
     // toolbar button that had no effect.
     if (ctx && !setTransformMode(ctx, mode)) return;
     setTransformModeState(mode);
@@ -1697,7 +1697,7 @@ export function EditorPage() {
         // `readCameraPose` legt als Blickpunkt das Orbit-Ziel ab, also teilen
         // sich alle Keyframes einer Umrundung denselben Blickpunkt und ihre
         // grünen Marker liegen exakt übereinander. Einfach den nächstgelegenen
-        // Treffer zu nehmen hieß bei identischem Abstand immer denselben — die
+        // Treffer zu nehmen hieß bei identischem Abstand immer denselben. Die
         // Sortierung ist stabil, also gewann stets der zuerst angelegte
         // Keyframe, und an die Blickpunkte aller anderen kam man im Viewport
         // nicht mehr heran.
@@ -1986,7 +1986,7 @@ export function EditorPage() {
         onOpenChange={setShowExportDialog}
         project={{
           ...project,
-          // Live-Weltfarbe mitgeben – sonst landet die zuletzt gespeicherte Farbe im Embed.
+          // Live-Weltfarbe mitgeben. Sonst landet die zuletzt gespeicherte Farbe im Embed.
           settings: { ...project.settings, background },
           cameraPath: { keyframes, isLoop, speed: cameraSpeed, playbackMode },
           lights,
@@ -2014,7 +2014,7 @@ export function EditorPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Speicher-Konflikt</AlertDialogTitle>
             <AlertDialogDescription>
-              {conflictAuthor} Deine Änderungen sind weiterhin lokal vorhanden – du musst nur
+              {conflictAuthor} Deine Änderungen sind weiterhin lokal vorhanden. Du musst nur
               entscheiden, welche Fassung gilt.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -2034,7 +2034,7 @@ export function EditorPage() {
       </AlertDialog>
 
       <AlertDialog open={showLeaveDialog} onOpenChange={setShowLeaveDialog}>
-        {/* Same surface as every Dialog — AlertDialog is a separate Radix
+        {/* Same surface as every Dialog. AlertDialog is a separate Radix
             primitive, so it takes the class rather than the shell. */}
         <AlertDialogContent className={GLASS_SURFACE}>
           <AlertDialogHeader>

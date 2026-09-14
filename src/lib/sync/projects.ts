@@ -7,7 +7,7 @@ import type { Project, ModelEntry } from '../db';
  * IndexedDB alone is not storage you can rely on: Safari drops site data after
  * seven days without a visit and Chrome evicts under pressure, so a project
  * with an hour of keyframe work in it was one cache clear from gone. Syncing
- * also makes projects portable — a colleague opens one and the models come
+ * also makes projects portable. A colleague opens one and the models come
  * from the CDN, because the document carries content-addressed asset keys
  * rather than local blob ids.
  *
@@ -57,7 +57,7 @@ export async function fetchRemoteProject(
  * Writes the project, refusing to clobber a version this editor has not seen.
  *
  * `ifMatch` is the ETag the editor last read. Without it the server treats the
- * write as a create and rejects an existing key — which is what keeps two tabs
+ * write as a create and rejects an existing key. Which is what keeps two tabs
  * that both think they are new from overwriting each other. A mismatch throws
  * an ApiError of kind `conflict`; the caller is expected to offer a reload
  * rather than retry, because retrying is exactly the silent overwrite the ETag

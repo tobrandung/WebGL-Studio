@@ -2,14 +2,14 @@
  * Re-encodes a Document's textures with the browser's own image pipeline.
  *
  * Deliberately not `textureCompress()` from @gltf-transform/functions: without
- * a Sharp encoder — Node-only — it falls back to ndarray-pixels and, in its own
+ * a Sharp encoder, Node-only, it falls back to ndarray-pixels and, in its own
  * words, "most quality- and compression-related options are ignored". The
  * quality slider would do nothing. `createImageBitmap` + canvas honours it and
  * is hardware-accelerated on top.
  *
  * The pass always encodes from a captured copy of the *original* images, never
- * from whatever is currently on the Document. Running it twice — which is
- * exactly what a quality slider does — would otherwise compress an already
+ * from whatever is currently on the Document. Running it twice. Which is
+ * exactly what a quality slider does. Would otherwise compress an already
  * compressed image, and the damage would accumulate with every drag.
  */
 
@@ -43,7 +43,7 @@ const DATA_SLOTS = /^(occlusion|metallicRoughness|specularGlossiness)Texture$/;
 /**
  * Normal maps store direction vectors, not colour. Lossy compression bends
  * them and the error surfaces as banding in the specular highlight, which
- * reads as a broken material rather than a soft image — so they keep their own
+ * reads as a broken material rather than a soft image. So they keep their own
  * floor no matter where the slider sits. Packed ORM maps get a lower floor for
  * the same kind of reason: chroma subsampling bleeds their channels together.
  *
@@ -66,7 +66,7 @@ export type TextureOriginal = {
 /**
  * What a texture is for, in German. Exporters usually leave textures
  * unnamed, and "Textur 7" tells the user nothing about which one has a
- * problem — the material slot does.
+ * problem. The material slot does.
  */
 const SLOT_LABEL: Record<string, string> = {
   baseColorTexture: 'Basisfarbe',
@@ -133,7 +133,7 @@ export type TexturePassResult = {
  * and one that stutters.
  *
  * Capped by backing-store bytes rather than entry count, because a 2048²
- * canvas is 16 MB and a 512² one is 1 MB — an entry count would either starve
+ * canvas is 16 MB and a 512² one is 1 MB. An entry count would either starve
  * the small case or blow up memory in the large one. Least-recently-used
  * entries are dropped first.
  */
@@ -283,7 +283,7 @@ export async function runTexturePass(
       ) {
         warnings.push({
           name: original.name,
-          reason: `war schon ${original.mimeType === 'image/webp' ? 'WebP' : 'JPEG'} — wird erneut verlustbehaftet komprimiert`,
+          reason: `war schon ${original.mimeType === 'image/webp' ? 'WebP' : 'JPEG'}. Wird erneut verlustbehaftet komprimiert`,
         });
       }
 

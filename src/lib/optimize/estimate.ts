@@ -5,9 +5,9 @@
  * It is a residual model, not a global ratio: the JSON chunk passes through
  * untouched and is carried over verbatim, textures are projected per texture
  * from their own measured bits-per-pixel, and geometry from its vertex and
- * attribute counts. Anything a global "expect 10×" heuristic would get wrong
- * — a model that is mostly geometry, one whose textures are already WebP —
- * this gets roughly right.
+ * attribute counts. This gets roughly right what a global "expect 10×"
+ * heuristic gets wrong: a model that is mostly geometry, or one whose
+ * textures are already WebP.
  *
  * Honest error band: about ±15 % on the total for a model with several
  * textures, ±25 % on a single texture at quality ≥ 75 and ±40 % below 60.
@@ -16,7 +16,7 @@
  *
  * Measured against the real encoder on a 21 MB test model, the total came
  * out 9–14 % *below* the encoded size at default settings and 9 % above it
- * with Draco off — so the bias is not reliably in one direction, and the
+ * with Draco off. So the bias is not reliably in one direction, and the
  * number is labelled "≈" until the measurement replaces it rather than being
  * presented as a safe upper bound.
  */
@@ -65,7 +65,7 @@ const SOURCE_ANCHOR: Record<string, number> = {
 
 /**
  * How busy this particular image is, relative to a typical one in the same
- * format. This factor does most of the accuracy work — without it a flat mask
+ * format. This factor does most of the accuracy work. Without it a flat mask
  * and a photographic albedo get the same projection and both are wrong.
  */
 function complexity(sizeBytes: number, width: number, height: number, mimeType: string): number {

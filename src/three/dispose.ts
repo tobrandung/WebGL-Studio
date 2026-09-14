@@ -2,8 +2,7 @@
  * GPU resource release for loaded models.
  *
  * Its own module rather than part of `viewport.ts` so the optimize dialog's
- * comparison renderer can use it without importing the editor viewport —
- * which would drag two scenes and OrbitControls into the widget's IIFE bundle,
+ * comparison renderer can use it without importing the editor viewport, which would drag two scenes and OrbitControls into the widget's IIFE bundle,
  * where dynamic imports are inlined and nothing gets tree-shaken across the
  * entry.
  */

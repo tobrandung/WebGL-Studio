@@ -68,7 +68,7 @@ function directionLabels(field: SortField): Record<SortDirection, string> {
     : { desc: 'Neueste zu ältesten', asc: 'Älteste zu neuesten' };
 }
 
-/** Nur der Projektname ist durchsuchbar – mehr steht auf der Card nicht. */
+/** Nur der Projektname ist durchsuchbar. Mehr steht auf der Card nicht. */
 function matchesQuery(name: string, query: string): boolean {
   return name.toLowerCase().includes(query);
 }
@@ -155,7 +155,7 @@ export function DashboardPage() {
           `fixed`, damit er beim Scrollen durch viele Projekte stehen bleibt
           statt unten auszulaufen. `100% 100%` statt `cover` oder `contain`: der
           Verlauf wird auf das Fenster gezogen, damit er immer vollständig zu
-          sehen ist — verzerrt, aber bei einem weichen Farbverlauf sieht man das
+          sehen ist. Verzerrt, aber bei einem weichen Farbverlauf sieht man das
           nicht, und weder Anschnitt noch Ränder bleiben übrig. */}
       <div
         aria-hidden
@@ -181,7 +181,7 @@ export function DashboardPage() {
             <Brand />
             {/* `pb-1` hebt die Reihe um 4px an: `items-end` richtet an der
                 Box-Unterkante der Überschrift aus, und die liegt durch den
-                Zeilenabstand 6px unter deren Grundlinie — optisch sahen Suche
+                Zeilenabstand 6px unter deren Grundlinie. Optisch sahen Suche
                 und Buttons dadurch abgesackt aus. */}
             <div className="flex flex-1 flex-wrap items-end gap-4 pb-1">
               {/* Nimmt den freien Platz zwischen Lockup und Aktionen ein und
@@ -195,7 +195,7 @@ export function DashboardPage() {
                   aria-label="Projekt suchen"
                   className="pl-10 pr-10"
                 />
-                {/* Erst ab der ersten Eingabe – ein X über einem leeren Feld
+                {/* Erst ab der ersten Eingabe. Ein X über einem leeren Feld
                     hätte nichts zu löschen. Rechts spiegelbildlich zur Lupe:
                     beide Icon-Mitten liegen 24px vom jeweiligen Rand. */}
                 {search && (
@@ -285,7 +285,7 @@ export function DashboardPage() {
                 <h2 className="text-sm font-medium">Im Team-Speicher</h2>
                 <p className="text-xs text-muted-foreground">
                   Projekte von Kolleg:innen oder von einem anderen Rechner. Öffnen lädt nur die
-                  Szene – Modelle kommen beim Ansehen aus dem CDN.
+                  Szene. Modelle kommen beim Ansehen aus dem CDN.
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -368,8 +368,8 @@ export function DashboardPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Deleting removes the shared R2 copy too, so it is worth a confirmation
-          — a colleague's only version of a project can be behind this. */}
+      {/* Deleting removes the shared R2 copy too, so it is worth a confirmation:
+          a colleague's only version of a project can be behind this. */}
       <Dialog open={deleteTarget !== null} onOpenChange={(next) => !next && setDeleteTarget(null)}>
         <GlassDialogContent size="sm">
           <GlassDialogHeader>
@@ -381,8 +381,8 @@ export function DashboardPage() {
           <GlassDialogBody>
             <p className="text-sm text-muted-foreground">
               {deleteTarget?.remote
-                ? 'Auch Kolleg:innen können das Projekt danach nicht mehr öffnen. Bereits veröffentlichte Modelle bleiben im CDN – eingebettete Widgets auf Kundenseiten laufen weiter.'
-                : 'Dieses Projekt war nie synchronisiert und existiert nur in diesem Browser – danach ist es weg.'}
+                ? 'Auch Kolleg:innen können das Projekt danach nicht mehr öffnen. Bereits veröffentlichte Modelle bleiben im CDN. Eingebettete Widgets auf Kundenseiten laufen weiter.'
+                : 'Dieses Projekt war nie synchronisiert und existiert nur in diesem Browser. Danach ist es weg.'}
             </p>
           </GlassDialogBody>
           <GlassDialogFooter>

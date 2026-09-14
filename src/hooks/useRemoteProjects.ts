@@ -7,8 +7,8 @@ import { listRemoteProjects, fetchRemoteProject, type RemoteProjectSummary } fro
  * Projects that exist in R2 but not in this browser.
  *
  * The point of the list is hand-off: a colleague's project, or your own from
- * another machine, is otherwise invisible. Importing writes the records only —
- * no blobs — because `loadBlob` pulls each asset from the CDN on first use, so
+ * another machine, is otherwise invisible. Importing writes the records only,
+ * no blobs, because `loadBlob` pulls each asset from the CDN on first use, so
  * opening a 200 MB project costs nothing until you actually look at it.
  */
 export function useRemoteProjects(localProjects: Project[], localLoading: boolean) {

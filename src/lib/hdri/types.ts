@@ -1,8 +1,8 @@
 /**
  * Shared types for the HDRI conversion pipeline.
  *
- * This module and its pure siblings — `half`, `colorspace`, `resample`, `rgbe`,
- * `exr-header`, `format` — import nothing but each other, and only via explicit
+ * This module and its pure siblings, `half`, `colorspace`, `resample`, `rgbe`,
+ * `exr-header`, `format`. Import nothing but each other, and only via explicit
  * `.ts` specifiers. That is what lets `scripts/convert-hdri.ts` run the very
  * same files under Node (whose native type stripping needs the extension and
  * knows nothing about Vite's `@` alias) while the app imports them through the
@@ -19,7 +19,7 @@ export type EnvironmentFormat = 'hdr' | 'exr' | 'ultrahdr' | 'sdr';
  *
  * `HDRLoader` hands out top-down rows with `flipY = true`, `EXRLoader` bottom-up
  * rows with `flipY = false`. The decoders normalise to top-down before anything
- * else touches the data — skip that and every EXR-sourced conversion comes out
+ * else touches the data. Skip that and every EXR-sourced conversion comes out
  * vertically mirrored, which looks plausible in a studio HDRI and obviously
  * broken in a sky one.
  *
@@ -72,7 +72,7 @@ export type TargetFormat = 'hdr' | 'ultrahdr' | 'webp';
  * One job: decode once, then encode every requested format at one resolution.
  * The decode is ~85 % of the wall time and the encoders are 50-600 ms, so
  * producing all three formats together makes the size comparison the UI shows
- * essentially free — a per-format job would pay for the decode three times.
+ * essentially free. A per-format job would pay for the decode three times.
  */
 export type ConvertJob = {
   width: number;

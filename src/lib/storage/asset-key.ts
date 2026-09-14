@@ -2,7 +2,7 @@
  * The contract between the browser and the two Workers: key grammar, allowed
  * content types, and the size ceiling.
  *
- * Deliberately a dependency-free module under src/ that infra/ re-exports — the
+ * Deliberately a dependency-free module under src/ that infra/ re-exports. The
  * same arrangement src/lib/optimize/pipeline.ts uses to stay runnable under
  * Node. A client that computes keys by one rule and a Worker that validates
  * them by another would fail only for the files where the rules disagree, which
@@ -37,7 +37,7 @@ export const ALLOWED_CONTENT_TYPES = new Set([
 
 /**
  * Hard ceiling for a single upload. The client refuses larger files, but that
- * check is a courtesy — the binding one is the signed Content-Length, which
+ * check is a courtesy. The binding one is the signed Content-Length, which
  * makes R2 itself reject a mismatched body.
  *
  * Chosen so the R2 free tier (10 GB) holds a useful number of projects, and
@@ -74,7 +74,7 @@ export function keyDigestPrefix(key: string): string | null {
  *
  * Content addressing is only a property of the system if someone checks it.
  * The Worker signs `x-amz-checksum-sha256` with the upload, so R2 refuses any
- * body whose digest differs — but that alone would only prove the client sent
+ * body whose digest differs. But that alone would only prove the client sent
  * *a* matching pair. Tying the digest back to the key here is what closes the
  * loop: the stored bytes must hash to the name they are stored under, so no
  * authenticated caller can park unrelated content on a key others link to and

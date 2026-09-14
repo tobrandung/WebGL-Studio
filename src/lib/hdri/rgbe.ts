@@ -1,5 +1,5 @@
 /**
- * Radiance (`.hdr`) reader and writer. Pure — runs unchanged in Node and the
+ * Radiance (`.hdr`) reader and writer. Pure. Runs unchanged in Node and the
  * browser, which is what lets the preset script and the in-app converter emit
  * byte-identical files.
  *

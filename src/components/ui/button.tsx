@@ -40,7 +40,7 @@ const buttonVariants = cva(
 
 /**
  * Wraps bare text children so a label that does not fit ends in an ellipsis
- * instead of pushing the button past whatever contains it — a 260px panel with
+ * instead of pushing the button past whatever contains it. A 260px panel with
  * a button reading "Aktuelle Ansicht übernehmen" was sticking out over the
  * viewport. Only strings are wrapped: an icon stays its own flex item, so the
  * gap between icon and label survives.
@@ -76,7 +76,7 @@ function Button({
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     >
-      {/* `asChild` hands its single child straight to Slot — wrapping would
+      {/* `asChild` hands its single child straight to Slot. Wrapping would
           give it two and break the merge. */}
       {asChild ? children : withTruncatedLabels(children)}
     </Comp>

@@ -1,6 +1,6 @@
 /**
  * Optimizer worker. Holds one Document for the lifetime of the dialog so
- * repeated runs — which is what a settings panel produces — do not re-parse
+ * repeated runs, which is what a settings panel produces, do not re-parse
  * a 50 MB file every time.
  *
  * Cancellation is by `worker.terminate()` from the client, same as the HDRI
@@ -66,7 +66,7 @@ let textureCache: ResizedCanvasCache = createTextureCache();
 
 /**
  * What the last real `writeBinary()` produced, and under which geometry
- * settings. Draco encodes during the write — not as a Document mutation — so
+ * settings. Draco encodes during the write, not as a Document mutation, so
  * a full write costs seconds on a large mesh. As long as the geometry
  * settings have not moved, that measurement still holds and a texture-only
  * change can be reported as `new texture bytes + this`. The error is the few
@@ -97,8 +97,8 @@ async function open(id: number, buffer: ArrayBuffer): Promise<void> {
 
   report(id, 'clean', 0);
   await cleanDocument(document);
-  // Captured after cleaning so dedup has already collapsed duplicate images —
-  // the pass then never encodes the same picture twice.
+  // Captured after cleaning so dedup has already collapsed duplicate images, so
+  // the pass never encodes the same picture twice.
   originals = captureTextureOriginals(document);
   textureCache = createTextureCache();
   lastWrite = null;
@@ -148,7 +148,7 @@ async function run(id: number, settings: OptimizeSettings, wantBuffer: boolean):
   // Skip the write when only the textures moved and the caller just wants a
   // number: re-serialising would re-run Draco over every primitive for a
   // result we can already account for exactly.
-  const notes = summarise(textures.skipped, ' — bleibt unverändert').concat(
+  const notes = summarise(textures.skipped, '. Bleibt unverändert').concat(
     summarise(textures.warnings, ''),
   );
 

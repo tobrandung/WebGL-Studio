@@ -2,7 +2,7 @@
  * Loads the Draco encoder and decoder in a browser worker.
  *
  * Both are needed. The encoder is the point of the feature; the decoder is
- * needed just to *read* a GLB that is already Draco-compressed — glTF-Transform
+ * needed just to *read* a GLB that is already Draco-compressed. GlTF-Transform
  * refuses such a file without it, and re-optimising an already-optimised model
  * is an obvious thing for a user to do.
  *
@@ -20,7 +20,7 @@
  *
  * What works is the `_nodejs` glue itself: despite the filename it is a
  * universal emscripten build with the full API, and it honours an explicitly
- * supplied `wasmBinary`. That last part is not optional — in a module worker
+ * supplied `wasmBinary`. That last part is not optional. In a module worker
  * `window`, `importScripts` and `process` are all absent, so every one of its
  * own wasm-fetching branches is skipped and it throws "both async and sync
  * fetching of the wasm failed".
@@ -57,7 +57,7 @@ export async function instantiateDraco(
 
   const module = await factory({ wasmBinary });
   if (typeof module[expectedSymbol] !== 'function') {
-    throw new Error(`Draco: unerwartete API — ${expectedSymbol} fehlt`);
+    throw new Error(`Draco: unerwartete API, ${expectedSymbol} fehlt`);
   }
   return module;
 }

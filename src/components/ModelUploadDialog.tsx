@@ -35,7 +35,7 @@ type ModelUploadDialogProps = {
  * Two ceilings, because the files that most need compressing are exactly the
  * ones a single limit would turn away: anything up to `MAX_DIRECT_BYTES` can
  * be stored as it is, up to `MAX_SOURCE_BYTES` only through the optimizer,
- * and beyond that not at all — a browser cannot hold it twice.
+ * and beyond that not at all. A browser cannot hold it twice.
  */
 const MAX_DIRECT_BYTES = 100 * 1024 * 1024;
 const MAX_SOURCE_BYTES = 250 * 1024 * 1024;
@@ -168,7 +168,7 @@ export function ModelUploadDialog({
               Bitte mit Material und Texturen exportieren.
             </p>
             <p className="mt-1">
-              GLB legt die Texturen als Chunks in die Datei — sie kommen also mit, solange der
+              GLB legt die Texturen als Chunks in die Datei. Sie kommen also mit, solange der
               Export Materialien einschließt. Aus FBX, OBJ oder Collada vorher ein GLB machen
               (Blender: Import, dann „glTF 2.0 (.glb)“ exportieren).
             </p>

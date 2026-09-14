@@ -8,7 +8,7 @@ import { formatBytes } from '@/lib/utils';
 /**
  * The bundled HDRIs. No thumbnail files: the generator already has the pixels
  * when it converts, so it records the mean sky, horizon and ground colour and
- * they render as a vertical gradient — which reads as an environment at a
+ * they render as a vertical gradient. Which reads as an environment at a
  * glance, distinguishes a blue exterior from a warm studio from a sunset, and
  * costs no extra request or decode.
  */
@@ -30,7 +30,7 @@ export function PresetLibrary({
   return (
     <div className="space-y-3">
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Mitgelieferte HDRIs – jeweils 1024 × 512 als Radiance .hdr, rund 1 MB. Direkt web-taugliche
+        Mitgelieferte HDRIs. Jeweils 1024 × 512 als Radiance .hdr, rund 1 MB. Direkt web-taugliche
         Standardumgebungen, ohne Umrechnen.
       </p>
       <ScrollArea className="max-h-72">

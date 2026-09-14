@@ -238,8 +238,7 @@ export function syncLights(
  * imported lazily so they only ship when actually needed.
  *
  * `format` decides the decoder and should be passed whenever it is known: an
- * Ultra HDR file is a `.jpg`, and handing that to `TextureLoader` *succeeds* —
- * it decodes only the SDR base layer and silently drops the gain map, leaving a
+ * Ultra HDR file is a `.jpg`, and handing that to `TextureLoader` *succeeds*. It decodes only the SDR base layer and silently drops the gain map, leaving a
  * flat, dim environment with no error anywhere. Omitting it falls back to name
  * sniffing, which is what environments stored before the converter existed rely
  * on (their extensions are unambiguous, so it is correct for them).

@@ -1,7 +1,7 @@
 /**
  * Tone maps a linear image into an SDR WebP. Browser-only (needs a canvas).
  *
- * The transfer is a soft knee in linear light, then the sRGB OETF — no ACES.
+ * The transfer is a soft knee in linear light, then the sRGB OETF. No ACES.
  * That choice matters and is not the obvious one: three disables tone mapping
  * for sRGB-tagged backgrounds (`WebGLBackground.js`:
  * `toneMapped = getTransfer(colorSpace) !== SRGBTransfer`), so a WebP dome is

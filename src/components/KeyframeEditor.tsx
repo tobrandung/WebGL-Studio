@@ -369,11 +369,11 @@ export function KeyframeEditor({
                     dropTargetId === kf.id ? 'border-l-2 border-ring' : ''
                   } ${
                     // `ring-inset`: the strip scrolls horizontally, and an
-                    // overflow container clips on both axes — an outward ring
+                    // overflow container clips on both axes. An outward ring
                     // lost its top, bottom and outer edge against the strip's
                     // boundary.
                     isSelected
-                      ? 'bg-accent text-accent-foreground ring-1 ring-inset ring-ring'
+                      ? 'active-surface'
                       : 'bg-secondary'
                   } ${draggingId === kf.id ? 'opacity-40' : ''}`}
                 >

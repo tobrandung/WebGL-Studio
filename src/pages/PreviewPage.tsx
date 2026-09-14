@@ -79,7 +79,7 @@ export function PreviewPage() {
     cameraRef.current = camera;
 
     // Ohne das stünde die Kamera bis zur ersten Scroll- oder Autoplay-Bewegung
-    // auf ihrer Default-Position statt am Anfang der Fahrt – die Szene sprang
+    // auf ihrer Default-Position statt am Anfang der Fahrt. Die Szene sprang
     // beim ersten Scrollen sichtbar an die richtige Stelle.
     {
       const { positionSpline, lookAtSpline } = splinesRef.current;

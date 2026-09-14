@@ -8,8 +8,8 @@ export type SwatchStops = [string, string, string];
 
 /**
  * White point for the preview only. The swatch is a recognition aid, not a
- * colour-managed thumbnail, so a fixed modest knee beats deriving one per image
- * — it keeps a bright sky and a dim interior visually comparable.
+ * colour-managed thumbnail, so a fixed modest knee beats deriving one per
+ * image. That keeps a bright sky and a dim interior visually comparable.
  */
 const PREVIEW_WHITE_POINT = 4;
 

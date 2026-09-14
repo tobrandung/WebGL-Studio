@@ -1,6 +1,6 @@
 /**
  * The API lives on the same origin as the SPA because both are served by the
- * studio Worker — which is what lets the Cloudflare Access cookie ride along on
+ * studio Worker. Which is what lets the Cloudflare Access cookie ride along on
  * a plain same-origin request. In `vite dev` the Vite proxy forwards /api to a
  * local `wrangler dev`.
  *
@@ -13,7 +13,7 @@ export const API_BASE = '/api';
 
 /**
  * Whether hosting is reachable at all. Set VITE_ASSET_HOSTING=off to work
- * offline against download/folder export only — useful when the Worker is not
+ * offline against download/folder export only. Useful when the Worker is not
  * running and the export dialog would otherwise just fail.
  */
 export function isHostingConfigured(): boolean {

@@ -7,7 +7,7 @@
  * This is that shell extracted, so the chrome is defined once and a new dialog
  * inherits it instead of re-typing it.
  *
- * Composes shadcn's `Dialog` rather than replacing it — `Dialog`, `DialogTitle`
+ * Composes shadcn's `Dialog` rather than replacing it, `Dialog`, `DialogTitle`
  * and friends are re-exported unchanged, so a dialog imports from one module.
  */
 
@@ -21,13 +21,13 @@ import { DialogContent, DialogFooter, DialogHeader } from '@/components/ui/dialo
  * `AlertDialog` is its own Radix primitive with its own content element.
  *
  * Fill, blur and border colour live in the `glass-surface` utility in
- * `index.css`, because the editor's panels — toolbar, outliner, properties,
- * keyframes — wear the same surface and are not dialogs.
+ * `index.css`, because the editor's panels. Toolbar, outliner, properties,
+ * keyframes. Wear the same surface and are not dialogs.
  */
 export const GLASS_SURFACE = 'glass-surface';
 
 /**
- * The app's motion for anything that changes size or slides — a slow ease-out
+ * The app's motion for anything that changes size or slides. A slow ease-out
  * that settles rather than snapping. Same curve as the export dialog's tabs.
  */
 export const DIALOG_TRANSITION =
@@ -44,7 +44,7 @@ const WIDTHS = {
   md: 'sm:max-w-xl',
   /** Tabs, tables, longer flows. */
   lg: 'sm:max-w-2xl',
-  /** Two columns side by side — controls next to a preview. */
+  /** Two columns side by side. Controls next to a preview. */
   xl: 'sm:max-w-4xl',
 } as const;
 
@@ -80,7 +80,7 @@ function GlassDialogHeader({
 
 /**
  * The one part that scrolls. `min-h-0` is what makes that work inside the
- * flex column — without it the body grows to its content and pushes the
+ * flex column. Without it the body grows to its content and pushes the
  * footer off screen instead of overflowing.
  */
 function GlassDialogBody({ className, ...props }: React.ComponentProps<'div'>) {
@@ -106,7 +106,7 @@ function GlassDialogFooter({
 }
 
 /**
- * Fades a section in where it would otherwise pop into place — a panel that
+ * Fades a section in where it would otherwise pop into place. A panel that
  * appears once a measurement lands, a step that replaces another. Purely
  * decorative, and skipped for `prefers-reduced-motion`.
  */

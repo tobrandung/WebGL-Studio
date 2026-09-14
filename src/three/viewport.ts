@@ -79,7 +79,7 @@ export function createViewport(
   // updateStyle=false: the canvas is sized by CSS (`h-full w-full`). Letting
   // three write inline width/height would pin it to its start size, and since
   // the ResizeObserver below watches the canvas itself, it would then never see
-  // the container change again — the viewport could never follow the window.
+  // the container change again. The viewport could never follow the window.
   renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -179,8 +179,8 @@ export function setViewportEnvironment(
  *
  * At the same visual quality WebP is roughly half the bytes of JPEG, which is
  * what pays for the larger capture below. `toDataURL` does not throw for a type
- * it cannot encode — it silently returns a PNG, and a PNG of a rendered scene
- * is several times either — so the result is checked rather than assumed.
+ * it cannot encode. It silently returns a PNG, and a PNG of a rendered scene
+ * is several times either. So the result is checked rather than assumed.
  */
 function encodeThumbnail(canvas: HTMLCanvasElement): string {
   const webp = canvas.toDataURL('image/webp', 0.82);
@@ -195,7 +195,7 @@ function encodeThumbnail(canvas: HTMLCanvasElement): string {
  * 640×360 rather than the card's ~320 CSS pixels wide: the dashboard is looked
  * at on whatever display the user has, and a 1× source on a 2× screen was the
  * mush this used to be. The thumbnail lives in IndexedDB as a base64 data URL
- * inside the project record, so its bytes are paid for per project forever —
+ * inside the project record, so its bytes are paid for per project forever, and
  * WebP is what keeps that affordable at twice the resolution.
  */
 export function captureThumbnail(ctx: ViewportContext, width = 640, height = 360): string {
@@ -212,13 +212,13 @@ export function captureThumbnail(ctx: ViewportContext, width = 640, height = 360
   const c2d = canvas.getContext('2d');
   if (!c2d) return '';
   // The viewport canvas is usually far larger than the thumbnail, so this is a
-  // heavy downscale — the cheap filter leaves visible aliasing on the grid.
+  // heavy downscale. The cheap filter leaves visible aliasing on the grid.
   c2d.imageSmoothingQuality = 'high';
   // Flatten onto a solid backdrop so transparent scenes don't become pure black.
   c2d.fillStyle = '#0f0f11';
   c2d.fillRect(0, 0, width, height);
   // Centre-crop rather than squash. The viewport is whatever shape the panel
-  // layout leaves it — rarely 16:9 — and scaling that straight into the
+  // layout leaves it, rarely 16:9, and scaling that straight into the
   // thumbnail box stretched every model on the dashboard.
   const scale = Math.max(width / source.width, height / source.height);
   const cropWidth = width / scale;

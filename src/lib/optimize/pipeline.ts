@@ -2,15 +2,15 @@
  * The optimize pipeline, split into the stages the dialog drives separately.
  *
  * The split is not cosmetic. Draco encodes during `writeBinary()`, not as a
- * Document mutation, so every write re-encodes every primitive — seconds on a
+ * Document mutation, so every write re-encodes every primitive. Seconds on a
  * large mesh. And glTF-Transform transforms mutate the Document in place,
  * while `cloneDocument()` copies every buffer, which is unaffordable at 50 MB.
  * So: clean once, re-run only the (idempotent) texture pass while the user
  * drags a slider, and write for real only when geometry settings change or the
  * user confirms.
  *
- * This module stays free of browser-only imports — the texture pass and the
- * encoder are injected — so `scripts/optimize-selftest.ts` can drive the exact
+ * This module stays free of browser-only imports. The texture pass and the
+ * encoder are injected. So `scripts/optimize-selftest.ts` can drive the exact
  * same code under Node.
  */
 
@@ -39,7 +39,7 @@ function createIO(): WebIO {
  * Reads a GLB, registering the Draco decoder only when the file actually needs
  * it. Peeking at the JSON chunk first keeps a plain GLB from paying for
  * 190 KB of wasm, while a re-optimise of an already-compressed model still
- * works — glTF-Transform throws outright without the decoder.
+ * works. GlTF-Transform throws outright without the decoder.
  */
 export async function readDocument(
   buffer: ArrayBuffer | Uint8Array,
@@ -79,8 +79,8 @@ export function jsonChunkBytes(bytes: Uint8Array): number {
  * can exceed the whole file, so subtracting it produces garbage. Images are
  * summed from the Document (exact, and exactly what the texture pass will
  * replace), the JSON chunk is read off the header, and geometry is what
- * remains of the BIN chunk. The mesh reports are still taken from `inspect()`
- * — the estimator needs their vertex and attribute counts.
+ * remains of the BIN chunk. The mesh reports are still taken from `inspect()`,
+ * because the estimator needs their vertex and attribute counts.
  */
 export function analyzeDocument(document: Document, bytes: Uint8Array): SourceAnalysis {
   const report = inspect(document);
@@ -129,7 +129,7 @@ export function analyzeDocument(document: Document, bytes: Uint8Array): SourceAn
 }
 
 /**
- * Prune, deduplicate and weld — the three that always run. None of them can
+ * Prune, deduplicate and weld. The three that always run. None of them can
  * change how the model looks: prune only drops unreferenced properties, dedup
  * only collapses bitwise-identical ones, and weld (at its default tolerance)
  * only merges vertices that are already identical. Weld also produces the

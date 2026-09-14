@@ -36,7 +36,7 @@ export type EnvironmentProbe = {
 };
 
 /**
- * Reads format and dimensions cheaply — from the file header for HDR/EXR, via
+ * Reads format and dimensions cheaply. From the file header for HDR/EXR, via
  * `createImageBitmap` for the rest. Deliberately never decodes pixels: a 16k
  * source has to get its size warning *before* anything allocates a gigabyte,
  * which is exactly the case the warning exists for.
@@ -198,7 +198,7 @@ export async function convertEnvironment(
     };
   } finally {
     // Immediate and unconditional, which is the only way to stop a worker that
-    // is inside a synchronous parse — and it frees its whole heap at once.
+    // is inside a synchronous parse. And it frees its whole heap at once.
     worker.terminate();
   }
 }

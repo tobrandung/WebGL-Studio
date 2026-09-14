@@ -147,7 +147,7 @@ export function useHdriConverter(showBackground: boolean): HdriConverter {
           setStatus('ready');
           if (!info.width || !info.height) {
             setError(
-              'Die Bildabmessungen konnten nicht gelesen werden – Umrechnen ist nicht möglich. Du kannst die Datei trotzdem unverändert übernehmen.',
+              'Die Bildabmessungen konnten nicht gelesen werden. Umrechnen ist nicht möglich. Du kannst die Datei trotzdem unverändert übernehmen.',
             );
             return;
           }

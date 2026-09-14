@@ -13,7 +13,7 @@ type CompareCanvasProps = {
   /** Shown instead of the right-hand side when the model is too big to hold twice. */
   degraded?: boolean;
   busy?: boolean;
-  /** Height override — the caller knows how much room the layout gives it. */
+  /** Height override. The caller knows how much room the layout gives it. */
   className?: string;
 };
 
@@ -43,7 +43,7 @@ export function CompareCanvas({
   /**
    * The real Fullscreen API rather than a fixed-position overlay: the dialog
    * above this has both a transform and a backdrop-filter, and either one makes
-   * it the containing block for `position: fixed` children — an "overlay" would
+   * it the containing block for `position: fixed` children. An "overlay" would
    * only ever fill the dialog. A fullscreen element is promoted to the browser's
    * top layer instead, so it escapes all of that.
    */
@@ -65,7 +65,7 @@ export function CompareCanvas({
     });
   }, []);
 
-  // The canvas is resized by the ResizeObserver below — the element that goes
+  // The canvas is resized by the ResizeObserver below. The element that goes
   // fullscreen is this frame, and the container inside it follows its box.
   // This only keeps the icon and the classes in sync, including when the user
   // leaves fullscreen by way of the browser rather than the button.
@@ -93,7 +93,7 @@ export function CompareCanvas({
       }
 
       // While fullscreen, Escape belongs to this view. The dialog listens for
-      // it on the document as well and would otherwise close behind us —
+      // it on the document as well and would otherwise close behind us, so it is
       // caught in the capture phase so that listener never sees the key.
       if (event.key === 'Escape' && document.fullscreenElement === frameRef.current) {
         event.stopPropagation();
@@ -109,8 +109,8 @@ export function CompareCanvas({
     const container = containerRef.current;
     if (!container) return;
 
-    // A refused WebGL context — the browser's per-page limit, a blocked GPU —
-    // must not take the whole dialog down with it. The numbers are the point;
+    // A refused WebGL context. The browser's per-page limit, a blocked GPU:
+    // none of them must take the whole dialog down with it. The numbers are the point;
     // the comparison is the extra.
     let view: CompareView;
     try {
@@ -182,7 +182,7 @@ export function CompareCanvas({
       {/* Button and hint in one group, bottom left. The shortcut is written out
           next to the control rather than left to the tooltip alone: a tooltip
           is portalled to document.body, which is outside the top layer and so
-          invisible in fullscreen — exactly where the way back matters. */}
+          invisible in fullscreen. Exactly where the way back matters. */}
       {!error && (
         <div className="absolute bottom-2 left-2 flex items-center gap-1.5">
           <Tooltip>
@@ -230,7 +230,7 @@ export function CompareCanvas({
 
       {degraded && (
         <span className="pointer-events-none absolute inset-y-0 right-0 flex w-1/2 items-center justify-center px-4 text-center text-[11px] leading-relaxed text-muted-foreground">
-          Vorschau deaktiviert — das Modell ist zu groß, um es zweimal gleichzeitig auf der
+          Vorschau deaktiviert. Das Modell ist zu groß, um es zweimal gleichzeitig auf der
           Grafikkarte zu halten.
         </span>
       )}

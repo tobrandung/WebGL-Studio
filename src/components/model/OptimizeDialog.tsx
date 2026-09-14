@@ -101,7 +101,7 @@ export function OptimizeDialog({
    * Two live copies of a heavy model can exceed what a laptop GPU has: the
    * textures alone are 4 bytes per pixel plus mipmaps once decoded, whatever
    * the file costs on disk. Past that the comparison is dropped rather than
-   * risking a lost context — and the panel says so.
+   * risking a lost context. And the panel says so.
    */
   const [degraded, setDegraded] = useState(false);
   const optimizer = useModelOptimizer(active, { preview: !degraded });
@@ -172,7 +172,7 @@ export function OptimizeDialog({
                   <Label className="flex items-center gap-1 text-xs">
                     Max. Größe
                     <InfoHint label="Maximale Texturgröße">
-                      Die einzige Einstellung, die auch den GPU-Speicher senkt — und zwar
+                      Die einzige Einstellung, die auch den GPU-Speicher senkt, und zwar
                       quadratisch. Das Format ändert nur die Dateigröße, im Speicher der
                       Grafikkarte liegt jede Textur unkomprimiert.
                     </InfoHint>
@@ -199,7 +199,7 @@ export function OptimizeDialog({
                       Qualität
                       <InfoHint label="Textur-Qualität">
                         Normal-Maps werden von diesem Regler ausgenommen und immer mit hoher
-                        Qualität gespeichert — sie enthalten Richtungsvektoren, keine Farben, und
+                        Qualität gespeichert. Sie enthalten Richtungsvektoren, keine Farben, und
                         zeigen Kompressionsfehler als Streifen im Glanzlicht.
                       </InfoHint>
                     </Label>
@@ -228,7 +228,7 @@ export function OptimizeDialog({
                     Komprimieren (Draco)
                     <InfoHint label="Draco">
                       Verkleinert die Geometrie typisch um das Vier- bis Achtfache. Die Positionen
-                      werden dabei quantisiert — in der Praxis nicht sichtbar. Der Editor, die
+                      werden dabei quantisiert. In der Praxis nicht sichtbar. Der Editor, die
                       Vorschau und das Widget können Draco bereits laden.
                     </InfoHint>
                   </Label>
@@ -244,7 +244,7 @@ export function OptimizeDialog({
               {settings.textureFormat === 'webp' && (
                 <DialogReveal className="text-[11px] leading-relaxed text-muted-foreground">
                   WebP-Texturen brauchen die glTF-Erweiterung <code>EXT_texture_webp</code>.
-                  Editor, Vorschau und Widget können das — ältere Viewer und manche DCC-Importer
+                  Editor, Vorschau und Widget können das. Ältere Viewer und manche DCC-Importer
                   nicht. Wenn du die Datei auch außerhalb weitergibst, ist „unverändert“ die
                   portablere Wahl.
                 </DialogReveal>
@@ -312,7 +312,7 @@ export function OptimizeDialog({
                       hint={
                         <InfoHint label="GPU-Speicher">
                           Was die Texturen entpackt auf der Grafikkarte belegen. Nur die maximale
-                          Texturgröße senkt diesen Wert — WebP verkleinert ausschließlich die
+                          Texturgröße senkt diesen Wert. WebP verkleinert ausschließlich die
                           Datei.
                         </InfoHint>
                       }

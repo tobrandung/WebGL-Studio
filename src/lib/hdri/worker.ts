@@ -7,7 +7,7 @@
  * loop for its entire duration, and a "chunked" progress bar would sit at 0 %
  * through the freeze anyway.
  *
- * One worker per job, terminated afterwards — see `client.ts`. Cancellation is
+ * One worker per job, terminated afterwards. See `client.ts`. Cancellation is
  * `terminate()` for the same reason: a cooperative flag cannot be delivered
  * while the worker sits inside `parse()`.
  */
