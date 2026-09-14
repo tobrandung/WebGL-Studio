@@ -19,8 +19,12 @@ import { DialogContent, DialogFooter, DialogHeader } from '@/components/ui/dialo
 /**
  * The surface without the layout, for popups that are not a `Dialog`:
  * `AlertDialog` is its own Radix primitive with its own content element.
+ *
+ * Fill, blur and border colour live in the `glass-surface` utility in
+ * `index.css`, because the editor's panels — toolbar, outliner, properties,
+ * keyframes — wear the same surface and are not dialogs.
  */
-export const GLASS_SURFACE = 'border-border/50 bg-background/70 backdrop-blur-[24px]';
+export const GLASS_SURFACE = 'glass-surface';
 
 /**
  * The app's motion for anything that changes size or slides — a slow ease-out

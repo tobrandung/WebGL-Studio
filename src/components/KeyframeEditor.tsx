@@ -218,7 +218,7 @@ export function KeyframeEditor({
   );
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-20 border-t bg-background/95 backdrop-blur-sm">
+    <div className="absolute bottom-0 left-0 right-0 z-20 border-t glass-surface">
       <div className="flex items-center gap-2 px-3 py-2">
         <Tooltip>
           <TooltipTrigger asChild>

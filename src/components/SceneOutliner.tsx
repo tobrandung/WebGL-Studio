@@ -514,7 +514,7 @@ export function SceneOutliner({
   }
 
   return (
-    <div className="absolute left-0 top-[49px] z-10 flex h-[calc(100%-49px)] w-[260px] flex-col border-r bg-background/95 backdrop-blur-sm">
+    <div className="absolute left-0 top-[49px] z-10 flex h-[calc(100%-49px)] w-[260px] flex-col border-r glass-surface">
       <div className="flex items-center justify-between px-3 py-2">
         <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Scene</span>
         <div className="flex items-center gap-0.5">

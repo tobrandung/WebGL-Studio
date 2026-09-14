@@ -76,7 +76,7 @@ export function EditorToolbar({
   hasKeyframes,
 }: EditorToolbarProps) {
   return (
-    <div className="absolute left-0 right-0 top-0 z-10 flex items-center gap-1 border-b bg-background/80 px-3 py-1.5 backdrop-blur-sm">
+    <div className="absolute left-0 right-0 top-0 z-10 flex items-center gap-1 border-b glass-surface px-3 py-1.5">
       <Tooltip>
         <TooltipTrigger asChild>
           <Button variant="ghost" size="icon" onClick={onBack} aria-label="Zurück zum Dashboard">

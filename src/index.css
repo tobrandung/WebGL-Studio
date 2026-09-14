@@ -129,6 +129,21 @@
   }
 }
 
+/* Die Glasfläche der App. Jede Fläche, die über dem Viewport schwebt, benutzt
+   sie: Toolbar, Outliner, Eigenschaften-Panel, Keyframe-Leiste und jeder Dialog
+   (über GLASS_SURFACE in ui/glass-dialog.tsx). Vorher hatte jede Fläche ihre
+   eigenen Werte — /80 hier, /95 da, blur-sm statt blur-24 — und sah dadurch
+   nebeneinander unterschiedlich aus.
+
+   Enthalten sind Füllung, Blur und Rahmen*farbe*. Welche Kanten einen Rahmen
+   bekommen, entscheidet die Fläche selbst (border-l, border-t …), denn das
+   hängt daran, wo sie am Bildschirmrand klebt. */
+@utility glass-surface {
+  background-color: color-mix(in oklab, var(--background) 70%, transparent);
+  border-color: color-mix(in oklab, var(--border) 50%, transparent);
+  backdrop-filter: blur(24px);
+}
+
 /* Der Vorher/Nachher-Vergleich im Optimieren-Dialog, während der Browser ihn
    ins Vollbild hebt. Bewusst ungeschichtet (nicht in @layer): Layer gewinnen
    über Spezifität, und die Layout-Höhe kommt aus einer Tailwind-Utility

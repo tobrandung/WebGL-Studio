@@ -104,7 +104,7 @@ export function PropertiesPanel({
   onDeleteKeyframe,
 }: PropertiesPanelProps) {
   return (
-    <div className="absolute right-0 top-[49px] z-10 flex h-[calc(100%-49px)] w-[260px] flex-col border-l bg-background/95 backdrop-blur-sm">
+    <div className="absolute right-0 top-[49px] z-10 flex h-[calc(100%-49px)] w-[260px] flex-col border-l glass-surface">
       <div className="px-3 py-2">
         <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
           Eigenschaften
