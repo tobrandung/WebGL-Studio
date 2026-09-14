@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, CloudDownload, Loader2 } from 'lucide-react';
+import { Plus, CloudDownload, Loader2, Search, ArrowUpDown, ChevronDown, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -17,6 +17,15 @@ import {
   GlassDialogFooter,
   GlassDialogHeader,
 } from '@/components/ui/glass-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ProjectCard } from '@/components/ProjectCard';
 import { ExportDialog } from '@/components/ExportDialog';
 import { useProjects } from '@/hooks/useProjects';
@@ -40,6 +49,44 @@ function Brand({ size = 'md' }: { size?: 'md' | 'lg' }) {
 /** Seconds each column lags behind the one to its left. */
 const COLUMN_STAGGER = 0.06;
 
+type SortField = 'updated' | 'created' | 'name';
+type SortDirection = 'desc' | 'asc';
+
+const SORT_FIELDS: Array<{ id: SortField; label: string }> = [
+  { id: 'updated', label: 'Zuletzt geändert' },
+  { id: 'created', label: 'Erstellungsdatum' },
+  { id: 'name', label: 'Alphabetisch' },
+];
+
+/**
+ * Für Namen ergibt „neueste zuerst" keinen Sinn, deshalb hängen die Labels am
+ * gewählten Feld. Die Richtung selbst bleibt dieselbe: `desc` ist absteigend.
+ */
+function directionLabels(field: SortField): Record<SortDirection, string> {
+  return field === 'name'
+    ? { desc: 'Z–A', asc: 'A–Z' }
+    : { desc: 'Neueste zu ältesten', asc: 'Älteste zu neuesten' };
+}
+
+/** Nur der Projektname ist durchsuchbar – mehr steht auf der Card nicht. */
+function matchesQuery(name: string, query: string): boolean {
+  return name.toLowerCase().includes(query);
+}
+
+function sortEntries<T extends { name: string; updatedAt: number; createdAt?: number }>(
+  entries: T[],
+  field: SortField,
+  direction: SortDirection,
+): T[] {
+  const sorted = [...entries].sort((a, b) => {
+    if (field === 'name') return a.name.localeCompare(b.name, 'de', { sensitivity: 'base' });
+    // Team-Projekte kennen kein Erstellungsdatum; dort bleibt es beim letzten Stand.
+    if (field === 'created') return (a.createdAt ?? a.updatedAt) - (b.createdAt ?? b.updatedAt);
+    return a.updatedAt - b.updatedAt;
+  });
+  return direction === 'desc' ? sorted.reverse() : sorted;
+}
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const gridRef = useRef<HTMLDivElement>(null);
@@ -53,6 +100,21 @@ export function DashboardPage() {
   const [renameId, setRenameId] = useState('');
   const [inputValue, setInputValue] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
+  const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState<SortField>('updated');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+
+  const query = search.trim().toLowerCase();
+  const directions = directionLabels(sortField);
+  const activeSortLabel = SORT_FIELDS.find((f) => f.id === sortField)?.label ?? '';
+  const visibleProjects = useMemo(
+    () => sortEntries(projects.filter((p) => matchesQuery(p.name, query)), sortField, sortDirection),
+    [projects, query, sortField, sortDirection],
+  );
+  const visibleRemote = useMemo(
+    () => sortEntries(remoteOnly.filter((r) => matchesQuery(r.name, query)), sortField, sortDirection),
+    [remoteOnly, query, sortField, sortDirection],
+  );
 
   const handleCreate = async () => {
     const name = inputValue.trim() || 'Unbenanntes Projekt';
@@ -113,8 +175,67 @@ export function DashboardPage() {
         </div>
       ) : (
         <>
-          <div className="mb-6 flex items-center justify-between">
+          <div className="mb-6 flex flex-wrap items-center gap-4">
             <Brand />
+            {/* Nimmt den freien Platz zwischen Lockup und Aktionen ein und
+                rutscht auf schmalen Fenstern in eine eigene Zeile. */}
+            <div className="relative min-w-48 flex-1">
+              <Search className="pointer-events-none absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Projekt suchen"
+                aria-label="Projekt suchen"
+                className="pl-10 pr-10"
+              />
+              {/* Erst ab der ersten Eingabe – ein X über einem leeren Feld
+                  hätte nichts zu löschen. Rechts spiegelbildlich zur Lupe:
+                  beide Icon-Mitten liegen 24px vom jeweiligen Rand. */}
+              {search && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Suche löschen"
+                  title="Suche löschen"
+                  onClick={() => setSearch('')}
+                  className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" aria-label="Sortieren nach">
+                  <ArrowUpDown className="h-4 w-4" />
+                  {activeSortLabel}
+                  <ChevronDown className="h-4 w-4 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Sortieren nach</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={sortField}
+                  onValueChange={(value) => setSortField(value as SortField)}
+                >
+                  {SORT_FIELDS.map((field) => (
+                    <DropdownMenuRadioItem key={field.id} value={field.id}>
+                      {field.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Ordnen</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={sortDirection}
+                  onValueChange={(value) => setSortDirection(value as SortDirection)}
+                >
+                  <DropdownMenuRadioItem value="desc">{directions.desc}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="asc">{directions.asc}</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button onClick={() => setShowNewDialog(true)}>
               <Plus className="mr-2 h-4 w-4" />
               Neues Projekt
@@ -124,7 +245,7 @@ export function DashboardPage() {
             ref={gridRef}
             className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           >
-            {projects.map((project, index) => (
+            {visibleProjects.map((project, index) => (
               <ProjectCard
                 key={project.id}
                 project={project}
@@ -144,7 +265,13 @@ export function DashboardPage() {
             ))}
           </div>
 
-          {remoteOnly.length > 0 && (
+          {query && visibleProjects.length === 0 && visibleRemote.length === 0 && (
+            <p className="py-16 text-center text-muted-foreground">
+              Kein Projekt passt zu „{search.trim()}".
+            </p>
+          )}
+
+          {visibleRemote.length > 0 && (
             <>
               <div className="mt-10 mb-4">
                 <h2 className="text-sm font-medium">Im Team-Speicher</h2>
@@ -154,7 +281,7 @@ export function DashboardPage() {
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {remoteOnly.map((remote) => (
+                {visibleRemote.map((remote) => (
                   <Card
                     key={remote.id}
                     className="cursor-pointer transition-colors hover:border-foreground/20"
