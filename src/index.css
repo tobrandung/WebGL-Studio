@@ -137,11 +137,19 @@
 
    Enthalten sind Füllung, Blur und Rahmen*farbe*. Welche Kanten einen Rahmen
    bekommen, entscheidet die Fläche selbst (border-l, border-t …), denn das
-   hängt daran, wo sie am Bildschirmrand klebt. */
-@utility glass-surface {
-  background-color: color-mix(in oklab, var(--background) 70%, transparent);
-  border-color: color-mix(in oklab, var(--border) 50%, transparent);
-  backdrop-filter: blur(24px);
+   hängt daran, wo sie am Bildschirmrand klebt.
+
+   Der Klassenname steht doppelt im Selektor, und das ist Absicht: tailwind-merge
+   kennt `glass-surface` nicht und lässt deshalb ein `bg-background` stehen, das
+   eine Komponente selbst mitbringt — `DialogContent` tut genau das. Mit einer
+   einfachen Klasse gewinnt die undurchsichtige Füllung und der Dialog verliert
+   seinen Blur. Die doppelte Klasse schlägt jede Ein-Klassen-Utility. */
+@layer utilities {
+  .glass-surface.glass-surface {
+    background-color: color-mix(in oklab, var(--background) 70%, transparent);
+    border-color: color-mix(in oklab, var(--border) 50%, transparent);
+    backdrop-filter: blur(24px);
+  }
 }
 
 /* Der Vorher/Nachher-Vergleich im Optimieren-Dialog, während der Browser ihn

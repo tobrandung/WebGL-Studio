@@ -87,11 +87,11 @@ export function ProjectCard({
       transition={{ duration: 0.5, ease: 'easeOut', delay: stagger }}
       className="h-full"
     >
-      {/* The outline is drawn inside the card (`ring-inset`) rather than as a
-          border, so it does not sit between the edge and the 16px padding —
-          content then measures 16 from the outer edge instead of 17. */}
+      {/* A ring rather than a border: it is drawn outside the box, so it does
+          not sit between the card edge and the 16px padding the way a border
+          would — content stays a clean 16 from the edge it is measured against. */}
       <Card
-        className="group flex h-full cursor-pointer flex-col gap-0 overflow-hidden rounded-2xl border-0 p-0 ring-1 ring-inset ring-border transition-[box-shadow] hover:ring-foreground/20"
+        className="group flex h-full cursor-pointer flex-col gap-0 overflow-hidden rounded-2xl border-0 p-0 ring-1 ring-border transition-[box-shadow] hover:ring-foreground/20"
         onClick={() => navigate(`/project/${project.id}`)}
       >
         <div className="relative aspect-video w-full overflow-hidden bg-muted">
@@ -179,7 +179,7 @@ export function ProjectCard({
                 className="flex-1 px-0 text-xs"
                 onClick={() => navigate(`/project/${project.id}/preview`)}
               >
-                Anzeigen
+                Vorschau
               </Button>
               <Separator orientation="vertical" className="h-4" />
               <Button

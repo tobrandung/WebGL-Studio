@@ -224,7 +224,9 @@ export function PreviewPage() {
   return (
     <div className="relative h-screen w-screen overflow-hidden">
       <div className="absolute left-4 top-4 z-10 flex items-center gap-2">
-        <Button variant="secondary" size="sm" onClick={() => navigate(`/project/${id}`)} aria-label="Zurück zum Editor">
+        {/* The preview is reached from the project card, not from the editor,
+            so back means back to the project list. */}
+        <Button variant="secondary" size="sm" onClick={() => navigate('/')} aria-label="Zurück zum Dashboard">
           <ArrowLeft className="mr-1 h-4 w-4" />
           Zurück
         </Button>

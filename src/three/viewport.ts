@@ -175,11 +175,30 @@ export function setViewportEnvironment(
 }
 
 /**
- * Renders one fresh frame and returns a downscaled JPEG data URL for use as a
+ * Encodes the thumbnail canvas, preferring WebP.
+ *
+ * At the same visual quality WebP is roughly half the bytes of JPEG, which is
+ * what pays for the larger capture below. `toDataURL` does not throw for a type
+ * it cannot encode — it silently returns a PNG, and a PNG of a rendered scene
+ * is several times either — so the result is checked rather than assumed.
+ */
+function encodeThumbnail(canvas: HTMLCanvasElement): string {
+  const webp = canvas.toDataURL('image/webp', 0.82);
+  return webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', 0.8);
+}
+
+/**
+ * Renders one fresh frame and returns a downscaled data URL for use as a
  * project card thumbnail. The read must happen synchronously right after
  * `render()` because the WebGL drawing buffer is not preserved between frames.
+ *
+ * 640×360 rather than the card's ~320 CSS pixels wide: the dashboard is looked
+ * at on whatever display the user has, and a 1× source on a 2× screen was the
+ * mush this used to be. The thumbnail lives in IndexedDB as a base64 data URL
+ * inside the project record, so its bytes are paid for per project forever —
+ * WebP is what keeps that affordable at twice the resolution.
  */
-export function captureThumbnail(ctx: ViewportContext, width = 320, height = 180): string {
+export function captureThumbnail(ctx: ViewportContext, width = 640, height = 360): string {
   const source = ctx.renderer.domElement;
   // A collapsed container (a hidden panel, a zero-height layout) leaves the
   // canvas at 0x0, and `drawImage` throws InvalidStateError on a zero-size
@@ -192,6 +211,9 @@ export function captureThumbnail(ctx: ViewportContext, width = 320, height = 180
   canvas.height = height;
   const c2d = canvas.getContext('2d');
   if (!c2d) return '';
+  // The viewport canvas is usually far larger than the thumbnail, so this is a
+  // heavy downscale — the cheap filter leaves visible aliasing on the grid.
+  c2d.imageSmoothingQuality = 'high';
   // Flatten onto a solid backdrop so transparent scenes don't become pure black.
   c2d.fillStyle = '#0f0f11';
   c2d.fillRect(0, 0, width, height);
@@ -212,7 +234,7 @@ export function captureThumbnail(ctx: ViewportContext, width = 320, height = 180
     width,
     height,
   );
-  return canvas.toDataURL('image/jpeg', 0.72);
+  return encodeThumbnail(canvas);
 }
 
 export async function loadModelFromBuffer(

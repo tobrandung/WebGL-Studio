@@ -397,7 +397,11 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
         // Additive: an older widget bundle ignores it and falls back to sniffing
         // the URL, which is correct for every format it can decode.
         format: envFormat,
-        showBackground: environment.showBackground,
+        // A transparent export wins over the scene's own setting: the widget
+        // applies the environment after clearing the background, so leaving
+        // this true would paint the HDRI back over the transparency and the
+        // toggle above would silently do nothing.
+        showBackground: environment.showBackground && !transparent,
         useForReflection: environment.useForReflection,
         intensity: environment.intensity,
         blurriness: environment.blurriness,
@@ -781,9 +785,11 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
                   <div className="space-y-0.5">
                     <Label htmlFor="export-include-env">HDRI / Umgebung einbeziehen</Label>
                     <p className="text-xs text-muted-foreground">
-                      {environment.showBackground
-                        ? 'Wird als Hintergrund und Spiegelung eingebettet.'
-                        : 'Transparenter Hintergrund, Spiegelung im Modell bleibt erhalten.'}
+                      {transparent
+                        ? 'Licht und Spiegelung'
+                        : environment.showBackground
+                          ? 'Wird als Hintergrund und Spiegelung eingebettet.'
+                          : 'Nur Licht und Spiegelung, kein Hintergrund.'}
                     </p>
                   </div>
                   <Switch id="export-include-env" checked={includeEnv} onCheckedChange={setIncludeEnv} />
