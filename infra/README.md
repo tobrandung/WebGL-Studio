@@ -121,11 +121,31 @@ Workers & Pages → `web3d-studio` → Settings → **Access** aktivieren, Polic
 - Action: *Allow*
 - Include: *Emails ending in* → `@brandung.de`
 
-Login per One-Time-PIN an die Mailadresse – kein Identity Provider nötig.
-
 Das funktioniert auch auf `*.workers.dev`, weil die Policy am Worker hängt und
 nicht an einem Hostname. Genau deshalb braucht dieses Setup keine eigene
 DNS-Zone.
+
+**Login-Methode nachtragen.** Seit Mai 2026 ist bei neu angelegten
+Zero-Trust-Accounts *Cloudflare* der Default-Identity-Provider und nicht mehr
+One-Time-PIN. Der Login-Screen zeigt dann nur „Sign in with Cloudflare" – und
+daran scheitert die Policy, sobald die Cloudflare-Identität nicht auf
+`@brandung.de` endet. Also mindestens eine passende Methode ergänzen unter
+**Integrations → Identity providers → Add new identity provider**:
+
+- **One-time PIN** – Code an die eingegebene Adresse, kein IdP nötig.
+- **Microsoft Entra ID** – braucht eine App-Registrierung im brandung-Tenant:
+  Redirect-URI `https://<team>.cloudflareaccess.com/cdn-cgi/access/callback`,
+  delegated Graph-Permissions `email`, `offline_access`, `openid`, `profile`,
+  `User.Read`, `Directory.Read.All`, `GroupMember.Read.All`, dann *Grant admin
+  consent* – das braucht Admin-Rechte im Tenant. Application (client) ID,
+  Directory (tenant) ID und Client-Secret gehen ins Cloudflare-Formular.
+
+Beide lassen sich parallel aktivieren, dann darf jede Person wählen.
+
+Ein Hinweistext auf dem Login-Screen („nur @brandung.de-Adressen") geht über
+**Reusable components → Custom pages → Access login page**, Felder *Custom
+header* und *Custom footer*. Das gilt account-weit für alle Applications, nicht
+pro App.
 
 Anschließend aus Zero Trust → Access → Applications → `web3d-studio` in
 `infra/studio/wrangler.toml` eintragen:
@@ -139,9 +159,23 @@ lokale `DEV_IDENTITY` zurück – in einem deployten Worker heißt das: jeder
 
 ### 6. Widget veröffentlichen
 
-Für `scripts/publish-widget.ts` ein **Service Token** anlegen (Zero Trust →
-Access → Service Auth) und es in den Policies der Studio-Application unter
-*Service Auth* zulassen.
+Einmal pro Widget-Release – nicht pro Projekt und nicht pro Nutzerin. Assets
+eines Projekts veröffentlichen alle selbst im Export-Dialog; hier geht es nur
+um das gemeinsame Player-Bundle.
+
+**Service Token anlegen:** Access controls → Service credentials → *Service
+Tokens* → *Create Service Token*. Das Client Secret wird genau einmal
+angezeigt; später hilft nur noch *Rotate secret*.
+
+**Token an der Application zulassen:** eine *zweite* Policy neben der
+`@brandung.de`-Policy, mit Action **Service Auth** und Include-Selector
+**Service Token**. Action *Allow* funktioniert nicht – damit schickt Access das
+Skript auf die Login-Seite.
+
+Entscheidend und leicht zu übersehen: Die Policy muss der **Application
+zugewiesen** sein. Eine unter *Policies* angelegte Policy, deren *Used by
+applications* noch `--` zeigt, wird nie ausgewertet, und `/api/sign` antwortet
+weiter mit 302 – im Skript als „Access hat die Anfrage abgelehnt".
 
 ```bash
 STUDIO_BASE=https://web3d-studio.<subdomain>.workers.dev \
@@ -150,8 +184,18 @@ CF_ACCESS_CLIENT_SECRET=… \
 npm run publish:widget
 ```
 
-Das Skript schreibt `src/widget-release.json` – **committen**, sonst erzeugen
-neue Embeds weiter die alte Bundle-URL.
+Dieselben Bytes ein zweites Mal zu veröffentlichen ist ein No-op.
+
+Danach zwingend beides:
+
+```bash
+git add src/widget-release.json && git commit -m "chore(widget): pin the published bundle URL"
+npm run build && cd infra/studio && npx wrangler deploy
+```
+
+Der Deploy ist nicht optional: `src/widget-release.json` wird per Import in die
+SPA hineingebaut, also sehen alle anderen die neue Bundle-URL erst nach einem
+neuen Studio-Deploy. Ohne Commit erzeugt der nächste Build wieder `url: null`.
 
 ## Lokale Entwicklung
 
