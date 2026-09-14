@@ -264,7 +264,9 @@ export function KeyframeEditor({
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            {selectedKeyframeId ? 'Keyframe hinter dem gewählten einfügen' : 'Keyframe hinzufügen'}
+            {selectedKeyframeId
+              ? 'Keyframe hinter dem gewählten einfügen (Taste E)'
+              : 'Keyframe hinzufügen (Taste E)'}
           </TooltipContent>
         </Tooltip>
 

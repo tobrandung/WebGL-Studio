@@ -175,71 +175,79 @@ export function DashboardPage() {
         </div>
       ) : (
         <>
-          <div className="mb-6 flex flex-wrap items-center gap-4">
+          {/* Unten ausgerichtet: Suche und Aktionen schließen mit der
+              Unterkante des Lockups ab, nicht mit dessen Mitte. */}
+          <div className="mb-6 flex flex-wrap items-end gap-4">
             <Brand />
-            {/* Nimmt den freien Platz zwischen Lockup und Aktionen ein und
-                rutscht auf schmalen Fenstern in eine eigene Zeile. */}
-            <div className="relative min-w-48 flex-1">
-              <Search className="pointer-events-none absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Projekt suchen"
-                aria-label="Projekt suchen"
-                className="pl-10 pr-10"
-              />
-              {/* Erst ab der ersten Eingabe – ein X über einem leeren Feld
-                  hätte nichts zu löschen. Rechts spiegelbildlich zur Lupe:
-                  beide Icon-Mitten liegen 24px vom jeweiligen Rand. */}
-              {search && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Suche löschen"
-                  title="Suche löschen"
-                  onClick={() => setSearch('')}
-                  className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
+            {/* `pb-1` hebt die Reihe um 4px an: `items-end` richtet an der
+                Box-Unterkante der Überschrift aus, und die liegt durch den
+                Zeilenabstand 6px unter deren Grundlinie — optisch sahen Suche
+                und Buttons dadurch abgesackt aus. */}
+            <div className="flex flex-1 flex-wrap items-end gap-4 pb-1">
+              {/* Nimmt den freien Platz zwischen Lockup und Aktionen ein und
+                  rutscht auf schmalen Fenstern in eine eigene Zeile. */}
+              <div className="relative min-w-48 flex-1">
+                <Search className="pointer-events-none absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Projekt suchen"
+                  aria-label="Projekt suchen"
+                  className="pl-10 pr-10"
+                />
+                {/* Erst ab der ersten Eingabe – ein X über einem leeren Feld
+                    hätte nichts zu löschen. Rechts spiegelbildlich zur Lupe:
+                    beide Icon-Mitten liegen 24px vom jeweiligen Rand. */}
+                {search && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Suche löschen"
+                    title="Suche löschen"
+                    onClick={() => setSearch('')}
+                    className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" aria-label="Sortieren nach">
+                    <ArrowUpDown className="h-4 w-4" />
+                    {activeSortLabel}
+                    <ChevronDown className="h-4 w-4 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>Sortieren nach</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={sortField}
+                    onValueChange={(value) => setSortField(value as SortField)}
+                  >
+                    {SORT_FIELDS.map((field) => (
+                      <DropdownMenuRadioItem key={field.id} value={field.id}>
+                        {field.label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Ordnen</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={sortDirection}
+                    onValueChange={(value) => setSortDirection(value as SortDirection)}
+                  >
+                    <DropdownMenuRadioItem value="desc">{directions.desc}</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="asc">{directions.asc}</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button onClick={() => setShowNewDialog(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Neues Projekt
+              </Button>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" aria-label="Sortieren nach">
-                  <ArrowUpDown className="h-4 w-4" />
-                  {activeSortLabel}
-                  <ChevronDown className="h-4 w-4 opacity-60" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>Sortieren nach</DropdownMenuLabel>
-                <DropdownMenuRadioGroup
-                  value={sortField}
-                  onValueChange={(value) => setSortField(value as SortField)}
-                >
-                  {SORT_FIELDS.map((field) => (
-                    <DropdownMenuRadioItem key={field.id} value={field.id}>
-                      {field.label}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>Ordnen</DropdownMenuLabel>
-                <DropdownMenuRadioGroup
-                  value={sortDirection}
-                  onValueChange={(value) => setSortDirection(value as SortDirection)}
-                >
-                  <DropdownMenuRadioItem value="desc">{directions.desc}</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="asc">{directions.asc}</DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button onClick={() => setShowNewDialog(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Neues Projekt
-            </Button>
           </div>
           <div
             ref={gridRef}

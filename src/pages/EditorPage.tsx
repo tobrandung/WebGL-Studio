@@ -1693,7 +1693,24 @@ export function EditorPage() {
     if (markers.length) {
       const markerHits = raycaster.intersectObjects(markers, false);
       if (markerHits.length > 0) {
-        applySelection(markerHits[0].object.name, 'keyframe');
+        // Deckungsgleiche Marker sind hier der Normalfall, kein Sonderfall:
+        // `readCameraPose` legt als Blickpunkt das Orbit-Ziel ab, also teilen
+        // sich alle Keyframes einer Umrundung denselben Blickpunkt und ihre
+        // grünen Marker liegen exakt übereinander. Einfach den nächstgelegenen
+        // Treffer zu nehmen hieß bei identischem Abstand immer denselben — die
+        // Sortierung ist stabil, also gewann stets der zuerst angelegte
+        // Keyframe, und an die Blickpunkte aller anderen kam man im Viewport
+        // nicht mehr heran.
+        //
+        // Deshalb entscheidet bei einem solchen Stapel der Keyframe, an dem
+        // gerade gearbeitet wird. Reihum durchklicken geht nicht: sobald die
+        // Gizmo am Klickpunkt hängt, verwirft der Drag-Schutz weiter oben jeden
+        // weiteren Klick an derselben Stelle.
+        const nearest = markerHits[0].distance;
+        const tied = markerHits.filter((hit) => hit.distance - nearest < 1e-4);
+        const activeId = parseKeyframeRef(selectionRef.current.id)?.id ?? null;
+        const preferred = tied.find((hit) => parseKeyframeRef(hit.object.name)?.id === activeId);
+        applySelection((preferred ?? markerHits[0]).object.name, 'keyframe');
         return;
       }
     }
@@ -1783,6 +1800,14 @@ export function EditorPage() {
           }
           break;
         }
+        // Nur in der Kamerafahrt: sonst würde ein E beim Modellieren
+        // unbemerkt Keyframes in eine Fahrt legen, die gar nicht sichtbar ist.
+        case 'e':
+          if (!isMeta && showKeyframeEditor) {
+            e.preventDefault();
+            handleAddKeyframe();
+          }
+          break;
         case 'escape':
           applySelection(null, null);
           break;
@@ -1802,6 +1827,8 @@ export function EditorPage() {
     handleDeleteKeyframe,
     deleteModelWithHistory,
     applySelection,
+    showKeyframeEditor,
+    handleAddKeyframe,
   ]);
 
   if (!project) {

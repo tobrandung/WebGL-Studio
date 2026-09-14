@@ -4,7 +4,10 @@ import { isHostingConfigured } from '@/lib/storage/config';
 import { deleteRemoteProject } from '@/lib/sync/projects';
 
 const DEFAULT_SETTINGS: ProjectSettings = {
-  background: '#1a1a1a',
+  // Kein reines Grau, und das ist Absicht: das Eigenschaften-Panel leitet die
+  // aktive Hintergrund-Karte aus der Farbe ab (`isPureGray`), neue Projekte
+  // starten damit auf „eigene Farbe" statt auf dem Graustufen-Regler.
+  background: '#1b1818',
   transparent: false,
 };
 
