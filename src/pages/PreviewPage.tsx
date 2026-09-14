@@ -5,7 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { ArrowLeft, Play, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getDB, environmentFormat, type Project } from '@/lib/db';
+import { getDB, environmentFormat, type Project, type PlaybackMode } from '@/lib/db';
 import { loadBlob } from '@/lib/storage/blob-cache';
 import { buildSplines, getCameraAtProgress, type Keyframe } from '@/three/camera-path';
 import {
@@ -23,15 +23,28 @@ export function PreviewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const mode = (searchParams.get('mode') as PreviewMode) || 'scroll';
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const progressRef = useRef(0);
-  const [playing, setPlaying] = useState(mode === 'autoplay');
   const [project, setProject] = useState<Project | null>(null);
+
+  // Ohne ?mode= entscheidet das Projekt: was im Export-Dialog gewählt wurde,
+  // soll die Vorschau auch zeigen. 'loop' ist Autoplay, das nicht anhält.
+  const storedMode = project?.cameraPath.playbackMode;
+  const paramMode = searchParams.get('mode') as PlaybackMode | null;
+  const playbackMode: PlaybackMode = paramMode ?? storedMode ?? 'scroll';
+  const mode: PreviewMode = playbackMode === 'scroll' ? 'scroll' : 'autoplay';
+  const loops = playbackMode === 'loop' || Boolean(project?.cameraPath.isLoop);
+
+  const [playing, setPlaying] = useState(false);
+
+  // Erst wenn das Projekt da ist, steht die Abspielart fest.
+  useEffect(() => {
+    if (project) setPlaying(mode === 'autoplay');
+  }, [project, mode]);
   const splinesRef = useRef<{ positionSpline: THREE.CatmullRomCurve3 | null; lookAtSpline: THREE.CatmullRomCurve3 | null }>({
     positionSpline: null,
     lookAtSpline: null,
@@ -64,6 +77,18 @@ export function PreviewPage() {
     const camera = new THREE.PerspectiveCamera(45, canvasRef.current.clientWidth / canvasRef.current.clientHeight, 0.1, 1000);
     camera.position.set(3, 2, 5);
     cameraRef.current = camera;
+
+    // Ohne das stünde die Kamera bis zur ersten Scroll- oder Autoplay-Bewegung
+    // auf ihrer Default-Position statt am Anfang der Fahrt – die Szene sprang
+    // beim ersten Scrollen sichtbar an die richtige Stelle.
+    {
+      const { positionSpline, lookAtSpline } = splinesRef.current;
+      if (positionSpline && lookAtSpline) {
+        const start = getCameraAtProgress(positionSpline, lookAtSpline, progressRef.current);
+        camera.position.copy(start.position);
+        camera.lookAt(start.lookAt);
+      }
+    }
 
     const renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current, antialias: true, alpha: project.settings.transparent });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -166,7 +191,7 @@ export function PreviewPage() {
       if (!positionSpline || !lookAtSpline || !cameraRef.current) return;
 
       progressRef.current += e.deltaY * 0.0005;
-      if (project?.cameraPath.isLoop) {
+      if (loops) {
         progressRef.current = ((progressRef.current % 1) + 1) % 1;
       } else {
         progressRef.current = Math.max(0, Math.min(1, progressRef.current));
@@ -179,7 +204,7 @@ export function PreviewPage() {
 
     window.addEventListener('wheel', handleWheel, { passive: false });
     return () => window.removeEventListener('wheel', handleWheel);
-  }, [mode, project]);
+  }, [mode, project, loops]);
 
   useEffect(() => {
     if (mode !== 'autoplay' || !playing) return;
@@ -202,7 +227,7 @@ export function PreviewPage() {
       progressRef.current += (dt * project.cameraPath.speed) / Math.max(duration, 1);
 
       if (progressRef.current >= 1) {
-        if (project.cameraPath.isLoop) {
+        if (loops) {
           progressRef.current = progressRef.current % 1;
         } else {
           progressRef.current = 1;
@@ -219,7 +244,7 @@ export function PreviewPage() {
     }
     animId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animId);
-  }, [mode, playing, project]);
+  }, [mode, playing, project, loops]);
 
   return (
     <div className="relative h-screen w-screen overflow-hidden">

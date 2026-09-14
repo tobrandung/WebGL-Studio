@@ -34,7 +34,13 @@ import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { getDB, environmentFormat, type Project, type ModelEntry } from '@/lib/db';
+import {
+  getDB,
+  environmentFormat,
+  type Project,
+  type ModelEntry,
+  type PlaybackMode,
+} from '@/lib/db';
 import type { EnvironmentFormat } from '@/lib/hdri/types';
 import { ENVIRONMENT_FORMAT_LABEL, extensionForFormat } from '@/lib/hdri/format';
 import { uploadAsset, lookupAsset } from '@/lib/storage/client';
@@ -46,7 +52,7 @@ import { cn, slugify, formatBytes } from '@/lib/utils';
 import { InfoHint } from '@/components/ui/info-hint';
 import { Notice } from '@/components/ui/notice';
 
-type ExportMode = 'scroll' | 'autoplay' | 'loop';
+type ExportMode = PlaybackMode;
 type ExportTab = 'display' | 'hosting' | 'embed';
 
 const EXPORT_TABS: ExportTab[] = ['display', 'hosting', 'embed'];
@@ -113,6 +119,12 @@ type ExportDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   project: Project | null;
+  /**
+   * Meldet die gewählte Abspielart zurück. Der Editor hält seine Kamerafahrt in
+   * eigenem State und würde sie beim nächsten Speichern sonst wieder
+   * überschreiben.
+   */
+  onPlaybackModeChange?: (mode: PlaybackMode) => void;
 };
 
 // Minimal File System Access API typings (not in the DOM lib for our target).
@@ -131,8 +143,43 @@ function fileExtension(fileName: string): string {
   return idx >= 0 ? fileName.slice(idx + 1).toLowerCase() : 'glb';
 }
 
-export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps) {
+export function ExportDialog({
+  open,
+  onOpenChange,
+  project,
+  onPlaybackModeChange,
+}: ExportDialogProps) {
   const [exportMode, setExportMode] = useState<ExportMode>('scroll');
+  const projectId = project?.id ?? null;
+  const storedMode = project?.cameraPath.playbackMode;
+
+  // Die zuletzt gewählte Abspielart gehört zum Projekt, nicht zum Dialog: die
+  // Vorschau soll dieselbe Fahrt zeigen wie das exportierte Widget.
+  useEffect(() => {
+    if (open) setExportMode(storedMode ?? 'scroll');
+  }, [open, storedMode, projectId]);
+
+  /**
+   * Schreibt die Wahl sofort weg – ohne Speichern-Klick, sonst zeigt die
+   * Vorschau weiter die alte Abspielart. Read-modify-write direkt auf der DB,
+   * damit parallel gehaltene Projektkopien nichts überschreiben.
+   */
+  const changeExportMode = useCallback(
+    async (mode: ExportMode) => {
+      setExportMode(mode);
+      onPlaybackModeChange?.(mode);
+      if (!projectId) return;
+      const db = await getDB();
+      const stored = await db.get('projects', projectId);
+      if (!stored || stored.cameraPath.playbackMode === mode) return;
+      await db.put('projects', {
+        ...stored,
+        cameraPath: { ...stored.cameraPath, playbackMode: mode },
+        updatedAt: Date.now(),
+      });
+    },
+    [projectId, onPlaybackModeChange],
+  );
   const [transparent, setTransparent] = useState(true);
   const [resolutionId, setResolutionId] = useState(DEFAULT_RESOLUTION_ID);
   const [copied, setCopied] = useState(false);
@@ -726,7 +773,7 @@ export function ExportDialog({ open, onOpenChange, project }: ExportDialogProps)
                       key={m.id}
                       variant={exportMode === m.id ? 'default' : 'outline'}
                       size="sm"
-                      onClick={() => setExportMode(m.id)}
+                      onClick={() => void changeExportMode(m.id)}
                     >
                       {m.label}
                     </Button>

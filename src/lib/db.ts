@@ -117,10 +117,19 @@ export type KeyframeData = {
   lookAt: [number, number, number];
 };
 
+/**
+ * Wie die Kamerafahrt abgespielt wird — im Export-Widget wie in der Vorschau.
+ * Im Export-Dialog gewählt und dort sofort gespeichert, damit die Vorschau
+ * dieselbe Fahrt zeigt wie das eingebettete Widget.
+ */
+export type PlaybackMode = 'scroll' | 'autoplay' | 'loop';
+
 export type CameraPath = {
   keyframes: KeyframeData[];
   isLoop: boolean;
   speed: number;
+  /** Fehlt bei Projekten aus der Zeit vor dieser Einstellung – dann 'scroll'. */
+  playbackMode?: PlaybackMode;
 };
 
 export type Project = {

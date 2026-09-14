@@ -44,6 +44,13 @@ function AlertDialogOverlay({
   )
 }
 
+/* `grid-cols-[minmax(0,1fr)]` statt der impliziten Spalte: Grid-Items haben
+   `min-width: auto` und dehnen die Spalte sonst auf ihre min-content-Breite.
+   Ein Footer aus drei `whitespace-nowrap`-Buttons war dadurch 569px breit,
+   waehrend der Hintergrund bei `max-w-lg` (512px) stehen blieb — Text und
+   Buttons ragten sichtbar ueber die Glasflaeche hinaus. Der Footer darf
+   zusaetzlich umbrechen, damit die Buttons im engen Fall untereinander
+   rutschen statt abgeschnitten zu werden. */
 function AlertDialogContent({
   className,
   size = "default",
@@ -58,7 +65,7 @@ function AlertDialogContent({
         data-slot="alert-dialog-content"
         data-size={size}
         className={cn(
-          "group/alert-dialog-content fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 data-[size=sm]:max-w-xs data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[size=default]:sm:max-w-lg",
+          "group/alert-dialog-content fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] grid-cols-[minmax(0,1fr)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 data-[size=sm]:max-w-xs data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[size=default]:sm:max-w-lg",
           className
         )}
         {...props}
@@ -91,7 +98,7 @@ function AlertDialogFooter({
     <div
       data-slot="alert-dialog-footer"
       className={cn(
-        "flex flex-col-reverse gap-2 group-data-[size=sm]/alert-dialog-content:grid group-data-[size=sm]/alert-dialog-content:grid-cols-2 sm:flex-row sm:justify-end",
+        "flex flex-col-reverse gap-2 group-data-[size=sm]/alert-dialog-content:grid group-data-[size=sm]/alert-dialog-content:grid-cols-2 sm:flex-row sm:flex-wrap sm:justify-end",
         className
       )}
       {...props}

@@ -13,6 +13,7 @@ import {
   type LightType,
   type EnvironmentConfig,
   type SaveStatus,
+  type PlaybackMode,
 } from '@/lib/db';
 import { formatBytes } from '@/lib/utils';
 import { loadBlob } from '@/lib/storage/blob-cache';
@@ -64,6 +65,7 @@ import {
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
 import { GLASS_SURFACE } from '@/components/ui/glass-dialog';
+import { XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   formatKeyframeRef,
@@ -161,6 +163,9 @@ export function EditorPage() {
   const [keyframes, setKeyframes] = useState<Keyframe[]>([]);
   const [isLoop, setIsLoop] = useState(true);
   const [cameraSpeed, setCameraSpeed] = useState(1);
+  // Im Export-Dialog gewählt, hier nur mitgeführt, damit das nächste
+  // Speichern die Wahl nicht wieder aus cameraPath kippt.
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>('scroll');
   const [showSpline, setShowSpline] = useState(true);
   const [showMarkers, setShowMarkers] = useState(true);
   const [isDirty, setIsDirty] = useState(false);
@@ -244,6 +249,7 @@ export function EditorPage() {
       setKeyframes(p.cameraPath.keyframes.map((kf) => ({ ...kf, id: kf.id ?? generateId() })));
       setIsLoop(p.cameraPath.isLoop);
       setCameraSpeed(p.cameraPath.speed);
+      setPlaybackMode(p.cameraPath.playbackMode ?? 'scroll');
       setGroups(p.groups ?? []);
       // Seed default lights into state only (persisted lazily on first edit)
       // so untouched legacy projects are not marked dirty.
@@ -805,7 +811,7 @@ export function EditorPage() {
       ...project,
       thumbnail,
       settings: { ...project.settings, background },
-      cameraPath: { keyframes, isLoop, speed: cameraSpeed },
+      cameraPath: { keyframes, isLoop, speed: cameraSpeed, playbackMode },
       groups,
       lights: lightsToSave,
       environment,
@@ -1955,14 +1961,29 @@ export function EditorPage() {
           ...project,
           // Live-Weltfarbe mitgeben – sonst landet die zuletzt gespeicherte Farbe im Embed.
           settings: { ...project.settings, background },
-          cameraPath: { keyframes, isLoop, speed: cameraSpeed },
+          cameraPath: { keyframes, isLoop, speed: cameraSpeed, playbackMode },
           lights,
           environment,
         }}
+        onPlaybackModeChange={setPlaybackMode}
       />
 
       <AlertDialog open={conflictAuthor !== null} onOpenChange={(next) => !next && setConflictAuthor(null)}>
         <AlertDialogContent className={GLASS_SURFACE}>
+          {/* Das X ist "später entscheiden": Schließen lässt den Konflikt offen
+              und die lokalen Änderungen unangetastet. Als Icon oben rechts
+              statt als dritter Button, damit die Zeile nur die beiden echten
+              Entscheidungen trägt. */}
+          <AlertDialogCancel
+            variant="ghost"
+            size="icon-sm"
+            disabled={resolvingConflict}
+            aria-label="Später entscheiden"
+            title="Später entscheiden"
+            className="absolute top-4 right-4 opacity-70 hover:opacity-100"
+          >
+            <XIcon className="size-4" />
+          </AlertDialogCancel>
           <AlertDialogHeader>
             <AlertDialogTitle>Speicher-Konflikt</AlertDialogTitle>
             <AlertDialogDescription>
@@ -1971,7 +1992,6 @@ export function EditorPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={resolvingConflict}>Später entscheiden</AlertDialogCancel>
             <Button
               variant="outline"
               disabled={resolvingConflict}
