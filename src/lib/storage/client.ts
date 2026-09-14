@@ -1,6 +1,6 @@
 import { callApi, apiErrorMessage, ApiError } from './api';
 import { isHostingConfigured } from './config';
-import { contentKey } from './hash';
+import { contentAddress } from './hash';
 import { MAX_UPLOAD_BYTES } from './asset-key';
 import type { AssetInput, AssetRef, UploadProgress } from './types';
 
@@ -64,7 +64,9 @@ function putWithProgress(
           'rejected',
           xhr.status === 403
             ? 'R2 hat den Upload abgelehnt (Signatur abgelaufen oder Header weichen ab). Bitte erneut versuchen.'
-            : `Upload fehlgeschlagen: HTTP ${xhr.status}`,
+            : xhr.status === 400
+              ? 'R2 hat den Upload abgelehnt: die übertragenen Daten passen nicht zur Prüfsumme. Bitte erneut versuchen.'
+              : `Upload fehlgeschlagen: HTTP ${xhr.status}`,
         ),
       );
     };
@@ -99,7 +101,7 @@ export async function uploadAsset(
     );
   }
 
-  const key = await contentKey(input.data, input.extension);
+  const { key, checksum } = await contentAddress(input.data, input.extension);
 
   const known = await lookupAsset(key);
   if (known.exists) return { key, url: known.publicUrl, skipped: true };
@@ -107,7 +109,12 @@ export async function uploadAsset(
   const signResponse = await callApi('/sign', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ key, contentType: input.contentType, size: input.data.byteLength }),
+    body: JSON.stringify({
+      key,
+      contentType: input.contentType,
+      size: input.data.byteLength,
+      checksum,
+    }),
   });
   if (!signResponse.ok) {
     const message = await apiErrorMessage(signResponse, `Signatur fehlgeschlagen (${signResponse.status}).`);

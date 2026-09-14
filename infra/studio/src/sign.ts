@@ -1,6 +1,7 @@
 import { AwsV4Signer } from 'aws4fetch';
 import {
   isValidAssetKey,
+  checksumMatchesKey,
   ALLOWED_CONTENT_TYPES,
   MAX_UPLOAD_BYTES,
   IMMUTABLE_CACHE_CONTROL,
@@ -18,7 +19,7 @@ export type SignEnv = {
 
 const SIGNATURE_TTL_SECONDS = 300;
 
-type SignRequest = { key?: unknown; contentType?: unknown; size?: unknown };
+type SignRequest = { key?: unknown; contentType?: unknown; size?: unknown; checksum?: unknown };
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -60,9 +61,12 @@ export async function handleExists(request: Request, env: SignEnv): Promise<Resp
  * megabytes through a CPU-metered isolate, and means a failed upload costs one
  * retry rather than a re-read of the whole file.
  *
- * Content-Type, Cache-Control and Content-Length are part of the signature, so
- * the client cannot store a file that is bigger, differently typed, or less
- * cacheable than what was approved here.
+ * Content-Type, Cache-Control, Content-Length and the SHA-256 checksum are all
+ * part of the signature, so the client cannot store a file that is bigger,
+ * differently typed, less cacheable, or simply *other* than what was approved
+ * here — R2 hashes the body itself and refuses a mismatch. Because we also
+ * require the checksum to agree with the key, an authenticated caller cannot
+ * park unrelated bytes under a name someone else links to.
  */
 export async function handleSign(request: Request, env: SignEnv): Promise<Response> {
   let body: SignRequest;
@@ -72,7 +76,7 @@ export async function handleSign(request: Request, env: SignEnv): Promise<Respon
     return json(400, { error: 'Body ist kein gültiges JSON.' });
   }
 
-  const { key, contentType, size } = body;
+  const { key, contentType, size, checksum } = body;
 
   if (typeof key !== 'string' || !isValidAssetKey(key)) {
     return json(400, { error: 'Ungültiger Asset-Key.' });
@@ -82,6 +86,9 @@ export async function handleSign(request: Request, env: SignEnv): Promise<Respon
   }
   if (typeof size !== 'number' || !Number.isInteger(size) || size <= 0) {
     return json(400, { error: 'Größe fehlt oder ist ungültig.' });
+  }
+  if (typeof checksum !== 'string' || !checksumMatchesKey(key, checksum)) {
+    return json(400, { error: 'Prüfsumme fehlt oder passt nicht zum Asset-Key.' });
   }
   if (size > MAX_UPLOAD_BYTES) {
     return json(413, {
@@ -93,6 +100,10 @@ export async function handleSign(request: Request, env: SignEnv): Promise<Respon
     'content-type': contentType,
     'content-length': String(size),
     'cache-control': IMMUTABLE_CACHE_CONTROL,
+    // R2 recomputes SHA-256 over the body and answers 400 on a mismatch. This
+    // is what turns the content-addressed key from a convention into a
+    // guarantee; validated against the key above, so both ends agree.
+    'x-amz-checksum-sha256': checksum,
   };
 
   // Signed through AwsV4Signer rather than AwsClient.sign(new Request(...)):

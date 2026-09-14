@@ -6,10 +6,19 @@
           "https://web3d-studio.brandung-3d.workers.dev",
           "http://localhost:5173"
         ],
-        "methods": ["PUT", "HEAD"],
-        "headers": ["content-type", "cache-control"]
+        "methods": [
+          "PUT",
+          "HEAD"
+        ],
+        "headers": [
+          "content-type",
+          "cache-control",
+          "x-amz-checksum-sha256"
+        ]
       },
-      "exposeHeaders": ["etag"],
+      "exposeHeaders": [
+        "etag"
+      ],
       "maxAgeSeconds": 86400
     }
   ]

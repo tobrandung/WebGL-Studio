@@ -4,6 +4,8 @@
  */
 export {
   isValidAssetKey,
+  checksumMatchesKey,
+  keyDigestPrefix,
   ALLOWED_CONTENT_TYPES,
   MAX_UPLOAD_BYTES,
   IMMUTABLE_CACHE_CONTROL,

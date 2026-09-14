@@ -49,3 +49,55 @@ export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 /** Content-addressed assets never change, so they can be cached forever. */
 export const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
+/**
+ * Base64 of a 32-byte digest: 43 payload characters plus one `=` of padding.
+ */
+const SHA256_BASE64 = /^[A-Za-z0-9+/]{43}=$/;
+
+/**
+ * The hex digest prefix a key claims to carry, or null for a shape that has
+ * none.
+ *
+ *   a/1a2b3c4d5e6f7a8b.glb            → 1a2b3c4d5e6f7a8b  (8 bytes)
+ *   w/1.4.0-1a2b3c4d/widget.iife.js   → 1a2b3c4d          (4 bytes)
+ */
+export function keyDigestPrefix(key: string): string | null {
+  const asset = /^a\/([0-9a-f]{16})\./.exec(key);
+  if (asset) return asset[1];
+  const widget = /^w\/[0-9a-z.-]{1,32}-([0-9a-f]{8})\//.exec(key);
+  return widget ? widget[1] : null;
+}
+
+/**
+ * Does this SHA-256 digest actually produce this key?
+ *
+ * Content addressing is only a property of the system if someone checks it.
+ * The Worker signs `x-amz-checksum-sha256` with the upload, so R2 refuses any
+ * body whose digest differs — but that alone would only prove the client sent
+ * *a* matching pair. Tying the digest back to the key here is what closes the
+ * loop: the stored bytes must hash to the name they are stored under, so no
+ * authenticated caller can park unrelated content on a key others link to and
+ * have it cached at the edge for a year.
+ *
+ * Takes the digest as base64 because that is the wire format R2 expects.
+ */
+export function checksumMatchesKey(key: string, checksumBase64: string): boolean {
+  if (!SHA256_BASE64.test(checksumBase64)) return false;
+  const prefix = keyDigestPrefix(key);
+  if (!prefix) return false;
+
+  let binary: string;
+  try {
+    binary = atob(checksumBase64);
+  } catch {
+    return false;
+  }
+  if (binary.length !== 32) return false;
+
+  let hex = '';
+  for (let i = 0; i < prefix.length / 2; i += 1) {
+    hex += binary.charCodeAt(i).toString(16).padStart(2, '0');
+  }
+  return hex === prefix;
+}

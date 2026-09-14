@@ -62,7 +62,11 @@ async function main(): Promise<void> {
   const { version } = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8')) as {
     version: string;
   };
-  const hash8 = createHash('sha256').update(bundle).digest('hex').slice(0, 8);
+  const digest = createHash('sha256').update(bundle).digest();
+  const hash8 = digest.toString('hex').slice(0, 8);
+  // Signed into the upload and checked against the key by the Worker, so the
+  // bundle stored under a version is provably the bundle that was built.
+  const checksum = digest.toString('base64');
   const key = `w/${version}-${hash8}/${FILE_NAME}`;
 
   const lookup = await fetch(`${studioBase}/api/sign?key=${encodeURIComponent(key)}`, {
@@ -89,6 +93,7 @@ async function main(): Promise<void> {
         key,
         contentType: 'text/javascript',
         size: bundle.byteLength,
+        checksum,
       }),
     });
     if (!signed.ok) {
