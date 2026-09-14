@@ -366,7 +366,13 @@ export function KeyframeEditor({
                   className={`group flex shrink-0 cursor-grab items-center gap-1 rounded-md px-2 py-1 ${
                     dropTargetId === kf.id ? 'border-l-2 border-ring' : ''
                   } ${
-                    isSelected ? 'bg-accent text-accent-foreground ring-1 ring-ring' : 'bg-secondary'
+                    // `ring-inset`: the strip scrolls horizontally, and an
+                    // overflow container clips on both axes — an outward ring
+                    // lost its top, bottom and outer edge against the strip's
+                    // boundary.
+                    isSelected
+                      ? 'bg-accent text-accent-foreground ring-1 ring-inset ring-ring'
+                      : 'bg-secondary'
                   } ${draggingId === kf.id ? 'opacity-40' : ''}`}
                 >
                   <span className="min-w-3 text-center text-xs font-medium tabular-nums">{i + 1}</span>

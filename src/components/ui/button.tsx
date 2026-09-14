@@ -38,11 +38,29 @@ const buttonVariants = cva(
   }
 )
 
+/**
+ * Wraps bare text children so a label that does not fit ends in an ellipsis
+ * instead of pushing the button past whatever contains it — a 260px panel with
+ * a button reading "Aktuelle Ansicht übernehmen" was sticking out over the
+ * viewport. Only strings are wrapped: an icon stays its own flex item, so the
+ * gap between icon and label survives.
+ */
+function withTruncatedLabels(children: React.ReactNode): React.ReactNode {
+  return React.Children.map(children, (child) =>
+    typeof child === "string" ? (
+      <span className="min-w-0 truncate">{child}</span>
+    ) : (
+      child
+    ),
+  )
+}
+
 function Button({
   className,
   variant = "default",
   size = "default",
   asChild = false,
+  children,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
@@ -57,7 +75,11 @@ function Button({
       data-size={size}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
-    />
+    >
+      {/* `asChild` hands its single child straight to Slot — wrapping would
+          give it two and break the merge. */}
+      {asChild ? children : withTruncatedLabels(children)}
+    </Comp>
   )
 }
 
