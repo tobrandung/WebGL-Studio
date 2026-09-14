@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, useInView, useReducedMotion } from 'motion/react';
@@ -91,7 +92,10 @@ export function ProjectCard({
           not sit between the card edge and the 16px padding the way a border
           would — content stays a clean 16 from the edge it is measured against. */}
       <Card
-        className="group flex h-full cursor-pointer flex-col gap-0 overflow-hidden rounded-2xl border-0 p-0 ring-1 ring-border transition-[box-shadow] hover:ring-foreground/20"
+        // `--glass-tint` hebt die Card vom Seitenhintergrund ab, statt sie wie
+        // Toolbar und Dialoge mit ihm verschmelzen zu lassen.
+        style={{ '--glass-tint': 'var(--card)' } as CSSProperties}
+        className="glass-surface group flex h-full cursor-pointer flex-col gap-0 overflow-hidden rounded-2xl border-0 p-0 ring-1 ring-border transition-[box-shadow] hover:ring-foreground/20"
         onClick={() => navigate(`/project/${project.id}`)}
       >
         <div className="relative aspect-video w-full overflow-hidden bg-muted">

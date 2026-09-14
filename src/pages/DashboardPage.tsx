@@ -89,6 +89,16 @@ export function DashboardPage() {
 
   return (
     <div className="min-h-screen px-6 py-8 lg:px-8">
+      {/* Hintergrund für Welcome-Screen und Projektliste gleichermaßen.
+          `fixed`, damit er beim Scrollen durch viele Projekte stehen bleibt
+          statt unten auszulaufen. `100% 100%` statt `cover` oder `contain`: der
+          Verlauf wird auf das Fenster gezogen, damit er immer vollständig zu
+          sehen ist — verzerrt, aber bei einem weichen Farbverlauf sieht man das
+          nicht, und weder Anschnitt noch Ränder bleiben übrig. */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 -z-10 bg-[url('/app-background.avif')] bg-[length:100%_100%] bg-center bg-no-repeat opacity-50"
+      />
       {isEmpty ? (
         <div className="flex h-[calc(100vh-4rem)] flex-col items-center justify-center gap-6">
           <Brand size="lg" />
