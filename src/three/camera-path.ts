@@ -63,6 +63,33 @@ export function getSplinePoints(spline: THREE.CatmullRomCurve3, segments = 200):
   return spline.getPoints(segments);
 }
 
+/**
+ * Where a keyframe sits on the timeline, as the same 0..1 progress the playback
+ * and the scrubber use.
+ *
+ * Not simply `index / (count - 1)`: playback walks the curve by arc length, so
+ * a keyframe close to its neighbour sits earlier in progress than its position
+ * in the list suggests. The cumulative lengths the curve caches are read at the
+ * keyframe's own curve parameter and divided by the total.
+ */
+export function getProgressAtKeyframe(
+  spline: THREE.CatmullRomCurve3,
+  index: number,
+  count: number,
+  isLoop: boolean,
+): number {
+  if (count < 2) return 0;
+  const t = isLoop ? index / count : index / (count - 1);
+  const divisions = 200;
+  const lengths = spline.getLengths(divisions);
+  const total = lengths[lengths.length - 1];
+  if (!total) return 0;
+  const at = t * divisions;
+  const step = Math.min(Math.floor(at), divisions - 1);
+  const length = lengths[step] + (lengths[step + 1] - lengths[step]) * (at - step);
+  return Math.max(0, Math.min(1, length / total));
+}
+
 export function getCameraAtProgress(
   positionSpline: THREE.CatmullRomCurve3,
   lookAtSpline: THREE.CatmullRomCurve3,

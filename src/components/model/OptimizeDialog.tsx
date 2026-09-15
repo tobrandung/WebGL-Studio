@@ -13,14 +13,15 @@ import {
 } from '@/components/ui/glass-dialog';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
+import { Spinner } from '@/components/ui/spinner';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { InfoHint } from '@/components/ui/info-hint';
 import { SizeBudgetBar } from '@/components/environment/SizeBudgetBar';
 import { CompareCanvas } from '@/components/model/CompareCanvas';
-import { useModelOptimizer } from '@/hooks/useModelOptimizer';
+import { useModelOptimizer, type OptimizerStatus } from '@/hooks/useModelOptimizer';
 import { formatSaving } from '@/lib/format';
 import { formatBytes } from '@/lib/utils';
 import type { MaxTextureSize, TextureFormat } from '@/lib/optimize/types';
@@ -80,6 +81,15 @@ function BreakdownRow({
   );
 }
 
+/** What the dialog is busy with. The states it is idle in say nothing. */
+const STATUS_LABEL: Record<OptimizerStatus, string> = {
+  idle: '',
+  opening: 'Modell wird gelesen',
+  ready: '',
+  measuring: 'Optimierung wird berechnet',
+  finishing: 'Wird angewendet',
+};
+
 export function OptimizeDialog({
   open,
   onOpenChange,
@@ -114,6 +124,12 @@ export function OptimizeDialog({
   }, [analysis]);
 
   const busy = status === 'opening' || status === 'measuring' || status === 'finishing';
+
+  // The worker's own step is more use than the coarse status, so it wins when
+  // there is one. It carries the percentage that the progress bar used to draw.
+  const statusLabel = progress
+    ? `${progress.label} ${Math.round(progress.progress * 100)} %`
+    : STATUS_LABEL[status];
   const estimated = size ? !size.measured : false;
   const sourceBytes = analysis?.fileSize ?? 0;
   const resultBytes = size?.total;
@@ -249,6 +265,21 @@ export function OptimizeDialog({
                   portablere Wahl.
                 </DialogReveal>
               )}
+
+              {/* Everything the dialog is busy with, in one pill in a slot that
+                  keeps its height whether the pill is in it or not. Every touch
+                  of a slider starts another pass, and a status that comes and
+                  goes used to grow and shrink the dialog on each one. */}
+              <div className="flex h-6 items-center">
+                {statusLabel && (
+                  <Badge variant="secondary" className="w-full justify-start gap-1.5 font-normal">
+                    <Spinner />
+                    <span className="truncate" aria-live="polite">
+                      {statusLabel}
+                    </span>
+                  </Badge>
+                )}
+              </div>
             </div>
 
             <div className="min-w-0 space-y-3">
@@ -319,15 +350,6 @@ export function OptimizeDialog({
                     />
                   </div>
                 </DialogReveal>
-              )}
-
-              {progress && (
-                <div className="space-y-1.5">
-                  <Progress value={Math.round(progress.progress * 100)} />
-                  <p className="text-xs text-muted-foreground" aria-live="polite">
-                    {progress.label}
-                  </p>
-                </div>
               )}
             </div>
           </div>

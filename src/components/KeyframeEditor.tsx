@@ -22,7 +22,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { buildSplines, getCameraAtProgress, type Keyframe } from '@/three/camera-path';
+import {
+  buildSplines,
+  getCameraAtProgress,
+  getProgressAtKeyframe,
+  type Keyframe,
+} from '@/three/camera-path';
 import type { ViewportContext } from '@/three/viewport';
 
 export type CameraPathImport = {
@@ -38,6 +43,11 @@ type KeyframeEditorProps = {
   speed: number;
   /** Id of the keyframe whose marker currently owns the gizmo. */
   selectedKeyframeId: string | null;
+  /**
+   * The last keyframe the camera was sent to, with the moment it happened, so
+   * that going to the same one twice still moves the scrubber.
+   */
+  jumpSignal: { id: string; at: number } | null;
   showSpline: boolean;
   showMarkers: boolean;
   onToggleSpline: (visible: boolean) => void;
@@ -58,6 +68,7 @@ export function KeyframeEditor({
   isLoop,
   speed,
   selectedKeyframeId,
+  jumpSignal,
   showSpline,
   showMarkers,
   onToggleSpline,
@@ -123,6 +134,31 @@ export function KeyframeEditor({
     return () => cancelAnimationFrame(animFrameRef.current);
   }, [playing, speed, isLoop, keyframes, viewportCtx]);
 
+  /**
+   * Space plays and pauses, the way it does in Blender and every other tool
+   * with a timeline. Taken globally rather than left to the focused button: the
+   * key has to work while the pointer is out in the viewport, which is where it
+   * is while the path is being watched.
+   *
+   * Typing is left alone, and so is anything inside an open dialog, which sits
+   * above this bar and keeps its own focus.
+   */
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.code !== 'Space' || event.repeat) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.isContentEditable || target.closest('input, textarea, [role="dialog"]')) return;
+
+      event.preventDefault();
+      setPlaying((prev) => !prev);
+    }
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const syncOverflow = useCallback(() => {
     const el = stripRef.current;
     if (!el) return;
@@ -149,6 +185,26 @@ export function KeyframeEditor({
       ?.querySelector(`[data-kf-id="${selectedKeyframeId}"]`)
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [selectedKeyframeId]);
+
+  /**
+   * Taking a keyframe's view is a move along the path, not a jump away from it,
+   * so the scrubber goes with it. Driven by the signal from the editor rather
+   * than by the chips here, because the properties panel has the same button.
+   *
+   * Playback stops: it would otherwise overwrite the camera on the next frame
+   * and the chosen view would never arrive. `jumpSignal` is the only dependency
+   * on purpose. Editing a keyframe must not drag the scrubber along with it.
+   */
+  useEffect(() => {
+    if (!jumpSignal || !splines.positionSpline) return;
+    const index = keyframes.findIndex((kf) => kf.id === jumpSignal.id);
+    if (index < 0) return;
+    setPlaying(false);
+    setProgress([
+      getProgressAtKeyframe(splines.positionSpline, index, keyframes.length, isLoop) * 100,
+    ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpSignal]);
 
   // Fades the chips themselves rather than overlaying the panel colour, so the
   // hint reads the same over any part of the 3D scene behind the bar.
@@ -222,11 +278,13 @@ export function KeyframeEditor({
       <div className="flex items-center gap-2 px-3 py-2">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPlaying(!playing)} aria-label={playing ? 'Pause' : 'Abspielen'}>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPlaying(!playing)} aria-label={playing ? 'Pause (Leertaste)' : 'Abspielen (Leertaste)'}>
               {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{playing ? 'Pause' : 'Abspielen'}</TooltipContent>
+          <TooltipContent>
+            {playing ? 'Pause' : 'Abspielen'} (<kbd className="font-mono">Leertaste</kbd>)
+          </TooltipContent>
         </Tooltip>
 
         <Tooltip>

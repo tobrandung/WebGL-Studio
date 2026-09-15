@@ -47,6 +47,8 @@ type EditorToolbarProps = {
   onAddLight: (type: LightType) => void;
   onAddEnvironment: () => void;
   onOpenKeyframeEditor: () => void;
+  /** Whether the keyframe bar is showing, so the button reads as a toggle. */
+  keyframeEditorOpen: boolean;
   onExport: () => void;
   onBack: () => void;
   onUndo: () => void;
@@ -66,6 +68,7 @@ export function EditorToolbar({
   onAddLight,
   onAddEnvironment,
   onOpenKeyframeEditor,
+  keyframeEditorOpen,
   onExport,
   onBack,
   onUndo,
@@ -236,12 +239,20 @@ export function EditorToolbar({
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="outline" size="sm" onClick={onOpenKeyframeEditor}>
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(keyframeEditorOpen && 'active-surface')}
+            aria-pressed={keyframeEditorOpen}
+            onClick={onOpenKeyframeEditor}
+          >
             <Video className="mr-1 h-4 w-4" />
             Kamerafahrt
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Keyframe Editor öffnen</TooltipContent>
+        <TooltipContent>
+          {keyframeEditorOpen ? 'Keyframe Editor schließen' : 'Keyframe Editor öffnen'}
+        </TooltipContent>
       </Tooltip>
 
       <Tooltip>

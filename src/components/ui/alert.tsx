@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { AlertTriangle, Info, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, Info, X, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -47,12 +47,18 @@ function Alert({
   variant,
   icon,
   inline,
+  onDismiss,
   children,
   ...props
 }: ComponentProps<'div'> &
   VariantProps<typeof alertVariants> & {
     /** Overrides the variant's icon. `null` renders the alert without one. */
     icon?: LucideIcon | null;
+    /**
+     * Adds a close button in the top right corner. For banners that stay until
+     * something changes, so they can be got out of the way of the scene.
+     */
+    onDismiss?: () => void;
     /**
      * Drops the box and keeps the colour and the icon, for a message that sits
      * inside a surface of its own: the dashboard's status bar draws the panel,
@@ -65,13 +71,28 @@ function Alert({
     <div
       data-slot="alert"
       role="alert"
-      className={cn(alertVariants({ variant }), inline && 'border-0 bg-transparent p-0', className)}
+      className={cn(
+        alertVariants({ variant }),
+        inline && 'border-0 bg-transparent p-0',
+        onDismiss && 'pr-10',
+        className,
+      )}
       {...props}
     >
       {/* A direct `svg` child is what switches the grid to its two-column form,
           so the icon has to be rendered here rather than inside a wrapper. */}
       {Icon && <Icon />}
       {children}
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Meldung schließen"
+          className="absolute top-2.5 right-2.5 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          <X className="size-4" />
+        </button>
+      )}
     </div>
   );
 }

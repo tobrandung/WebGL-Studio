@@ -185,6 +185,8 @@ export function EditorPage() {
   const [showLeaveDialog, setShowLeaveDialog] = useState(false);
   /** Names of models whose bytes are neither local nor in the CDN. */
   const [missingModels, setMissingModels] = useState<string[]>([]);
+  /** Set whenever the camera is sent to a keyframe, so the scrubber follows. */
+  const [jumpSignal, setJumpSignal] = useState<{ id: string; at: number } | null>(null);
   const [conflictAuthor, setConflictAuthor] = useState<string | null>(null);
   const [resolvingConflict, setResolvingConflict] = useState(false);
   const [groups, setGroups] = useState<SceneGroup[]>([]);
@@ -589,6 +591,13 @@ export function EditorPage() {
     failures: publishFailures,
     quotaExceeded: storageFull,
   } = useAssetPublisher(id ?? '', models, environment, handleAssetsPublished);
+
+  // Banners over the viewport can be pushed aside. The key carries what the
+  // banner is about, so a different failure is a different banner and shows
+  // again instead of staying hidden behind an earlier dismissal.
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  const missingKey = `missing:${missingModels.join(',')}`;
+  const failureKey = `failed:${publishFailures.map((failure) => failure.id).join(',')}`;
 
   // ---------------------------------------------------------------------------
   // History plumbing
@@ -1629,6 +1638,9 @@ export function EditorPage() {
     ctx.camera.position.set(...keyframe.position);
     ctx.orbitControls.target.set(...keyframe.lookAt);
     ctx.orbitControls.update();
+    // The keyframe bar moves its scrubber to match. The timestamp makes a
+    // second jump to the same keyframe a new signal rather than a no-op.
+    setJumpSignal({ id: keyframeId, at: performance.now() });
   }, []);
 
   const handleDeleteKeyframe = useCallback(
@@ -1917,6 +1929,7 @@ export function EditorPage() {
         onAddLight={handleAddLight}
         onAddEnvironment={() => setShowEnvDialog(true)}
         onOpenKeyframeEditor={handleToggleKeyframeEditor}
+        keyframeEditorOpen={showKeyframeEditor}
         onExport={async () => {
           await performSave();
           setShowExportDialog(true);
@@ -1968,8 +1981,12 @@ export function EditorPage() {
           click-through so it never steals an orbit drag from the viewport. */}
       {(missingModels.length > 0 || publishFailures.length > 0 || publishingAssets) && (
         <div className="pointer-events-none absolute left-1/2 top-[61px] z-10 w-[min(560px,calc(100%-32px))] -translate-x-1/2 space-y-2">
-          {missingModels.length > 0 && (
-            <Alert variant="warning" className="pointer-events-auto glass-surface">
+          {missingModels.length > 0 && !dismissed.includes(missingKey) && (
+            <Alert
+              variant="warning"
+              className="pointer-events-auto glass-surface"
+              onDismiss={() => setDismissed((prev) => [...prev, missingKey])}
+            >
               <AlertDescription>
                 {missingModels.length === 1
                   ? `„${missingModels[0]}" konnte nicht geladen werden.`
@@ -1981,10 +1998,11 @@ export function EditorPage() {
           )}
           {/* A full bucket is not a warning about this project, it is a failure
               that stops every upload, so it gets the red variant. */}
-          {publishFailures.length > 0 && (
+          {publishFailures.length > 0 && !dismissed.includes(failureKey) && (
             <Alert
               variant={storageFull ? 'destructive' : 'warning'}
               className="pointer-events-auto glass-surface"
+              onDismiss={() => setDismissed((prev) => [...prev, failureKey])}
             >
               <AlertDescription>
                 <p className="font-medium">Nicht für das Team veröffentlicht:</p>
@@ -2005,35 +2023,38 @@ export function EditorPage() {
           )}
         </div>
       )}
-      {(selectedKind === 'world' ||
-        (selectedKind === 'light' && selectedId) ||
-        (selectedKind === 'environment' && environment) ||
-        selectedModel ||
-        selectedKeyframe) && (
-        <PropertiesPanel
-          model={selectedModel}
-          transformMode={transformModeState}
-          scaleLocked={scaleLocked}
-          onScaleLockChange={setScaleLocked}
-          light={selectedKind === 'light' ? lights.find((l) => l.id === selectedId) ?? null : null}
-          environment={selectedKind === 'environment' ? environment : null}
-          background={selectedKind === 'world' ? background : null}
-          sceneEnvironment={environment}
-          onUseEnvironmentBackground={handleUseEnvironmentBackground}
-          keyframe={selectedKeyframe}
-          onUpdateModelTransform={handleUpdateModelTransform}
-          onUpdateLight={handleUpdateLight}
-          onUpdateEnvironment={handleUpdateEnvironment}
-          onReplaceEnvironment={() => setShowEnvDialog(true)}
-          onUpdateBackground={handleUpdateBackground}
-          onUpdateKeyframe={handleUpdateKeyframe}
-          onSelectKeyframePart={selectKeyframe}
-          onCaptureKeyframeFromCamera={handleCaptureKeyframeFromCamera}
-          onJumpToKeyframe={handleJumpToKeyframe}
-          onDuplicateKeyframe={handleDuplicateKeyframe}
-          onDeleteKeyframe={handleDeleteKeyframe}
-        />
-      )}
+      {/* Always mounted, so it can slide back out. What used to gate the whole
+          panel is now its `open`. */}
+      <PropertiesPanel
+        open={Boolean(
+          selectedKind === 'world' ||
+            (selectedKind === 'light' && selectedId) ||
+            (selectedKind === 'environment' && environment) ||
+            selectedModel ||
+            selectedKeyframe,
+        )}
+        model={selectedModel}
+        transformMode={transformModeState}
+        scaleLocked={scaleLocked}
+        onScaleLockChange={setScaleLocked}
+        light={selectedKind === 'light' ? lights.find((l) => l.id === selectedId) ?? null : null}
+        environment={selectedKind === 'environment' ? environment : null}
+        background={selectedKind === 'world' ? background : null}
+        sceneEnvironment={environment}
+        onUseEnvironmentBackground={handleUseEnvironmentBackground}
+        keyframe={selectedKeyframe}
+        onUpdateModelTransform={handleUpdateModelTransform}
+        onUpdateLight={handleUpdateLight}
+        onUpdateEnvironment={handleUpdateEnvironment}
+        onReplaceEnvironment={() => setShowEnvDialog(true)}
+        onUpdateBackground={handleUpdateBackground}
+        onUpdateKeyframe={handleUpdateKeyframe}
+        onSelectKeyframePart={selectKeyframe}
+        onCaptureKeyframeFromCamera={handleCaptureKeyframeFromCamera}
+        onJumpToKeyframe={handleJumpToKeyframe}
+        onDuplicateKeyframe={handleDuplicateKeyframe}
+        onDeleteKeyframe={handleDeleteKeyframe}
+      />
       {showKeyframeEditor && (
         <KeyframeEditor
           viewportCtx={viewport}
@@ -2041,6 +2062,7 @@ export function EditorPage() {
           isLoop={isLoop}
           speed={cameraSpeed}
           selectedKeyframeId={selectedKeyframe?.keyframe.id ?? null}
+          jumpSignal={jumpSignal}
           showSpline={showSpline}
           showMarkers={showMarkers}
           onToggleSpline={setShowSpline}

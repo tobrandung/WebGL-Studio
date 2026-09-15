@@ -24,6 +24,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Sheet } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
 import {
   Collapsible,
@@ -492,187 +493,192 @@ export function SceneOutliner({
     </p>
   );
 
-  if (collapsed) {
-    return (
-      <div className="absolute left-0 top-[49px] z-10">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="secondary"
-              size="icon"
-              className="m-2 size-8"
-              onClick={onToggleCollapse}
-              aria-label="Scene Outliner öffnen"
-            >
-              <Layers className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="right">Scene Outliner</TooltipContent>
-        </Tooltip>
-      </div>
-    );
-  }
-
   return (
-    <div className="absolute left-0 top-[49px] z-10 flex h-[calc(100%-49px)] w-[260px] flex-col border-r glass-surface">
-      <div className="flex items-center justify-between px-3 py-2">
-        <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Scene</span>
-        <div className="flex items-center gap-0.5">
+    <>
+      {/* Stays behind the panel in paint order, so the panel still covers it
+          while it slides away. */}
+      {collapsed && (
+        <div className="absolute left-0 top-[49px] z-10">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="size-6" onClick={onCreateGroup} aria-label="Neue Gruppe">
-                <FolderPlus className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Neue Gruppe</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="size-6" onClick={onToggleCollapse} aria-label="Scene Outliner schließen">
-                <ChevronRight className="h-3 w-3 rotate-180" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Einklappen</TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-      <Separator />
-      <ScrollArea className="flex-1">
-        <div className="p-1">
-          {sectionLabel('Welt')}
-          {renderWorldRow()}
-
-          {environment && (
-            <>
-              {sectionLabel('Umgebung')}
-              {renderEnvironmentRow()}
-            </>
-          )}
-
-          {lights.length > 0 && (
-            <>
-              {sectionLabel('Licht')}
-              {[...lights].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map(renderLightRow)}
-            </>
-          )}
-
-          {sectionLabel('Modelle')}
-
-          {models.length === 0 && groups.length === 0 ? (
-            <p className="px-3 py-4 text-center text-xs text-muted-foreground">Noch keine Modelle vorhanden</p>
-          ) : (
-            <>
-              {sortedGroups.map((group) => {
-                const members = models.filter((m) => m.groupId === group.id);
-                const isGroupDrop = dropTarget === `group:${group.id}`;
-                return (
-                  <Collapsible
-                    key={group.id}
-                    open={!group.collapsed}
-                    onOpenChange={() => onToggleGroupCollapsed(group.id)}
-                  >
-                    <div
-                      className={`group/g flex items-center gap-1 rounded-md px-1 py-1 hover:bg-accent/40 ${
-                        isGroupDrop ? 'ring-1 ring-ring' : ''
-                      }`}
-                      onDragOver={(e) => {
-                        if (!draggingId) return;
-                        e.preventDefault();
-                        setDropTarget(`group:${group.id}`);
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleDrop(group.id, null);
-                      }}
-                    >
-                      <CollapsibleTrigger asChild>
-                        <button className="shrink-0 text-muted-foreground hover:text-foreground" type="button" aria-label="Gruppe auf/zuklappen">
-                          {group.collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                        </button>
-                      </CollapsibleTrigger>
-
-                      {renamingGroupId === group.id ? (
-                        <Input
-                          className="h-6 flex-1 px-1 text-xs"
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onBlur={() => commitGroupRename(group.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') commitGroupRename(group.id);
-                            if (e.key === 'Escape') setRenamingGroupId(null);
-                            e.stopPropagation();
-                          }}
-                          autoFocus
-                        />
-                      ) : (
-                        <span
-                          className="flex-1 truncate text-xs font-medium"
-                          onDoubleClick={() => startRename(group.id, group.name, 'group')}
-                        >
-                          {group.name}
-                        </span>
-                      )}
-
-                      <span className="shrink-0 text-[10px] text-muted-foreground">{members.length}</span>
-
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            className="shrink-0 opacity-0 group-hover/g:opacity-100"
-                            type="button"
-                            aria-label="Gruppen-Optionen"
-                          >
-                            <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => startRename(group.id, group.name, 'group')}>
-                            <Pencil className="mr-2 h-3.5 w-3.5" />
-                            Umbenennen
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-red-400 focus:text-red-400" onClick={() => onDeleteGroup(group.id)}>
-                            <Trash2 className="mr-2 h-3.5 w-3.5" />
-                            Gruppe auflösen
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                    <CollapsibleContent>
-                      <div className="ml-3 border-l border-border/60 pl-1">
-                        {members.length === 0 ? (
-                          <p className="px-2 py-1 text-[11px] text-muted-foreground/70">Leer. Modelle hierher ziehen</p>
-                        ) : (
-                          members.map(renderModelRow)
-                        )}
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                );
-              })}
-
-              {sortedGroups.length > 0 && ungrouped.length > 0 && <Separator className="my-1" />}
-
-              <div
-                onDragOver={(e) => {
-                  if (!draggingId) return;
-                  e.preventDefault();
-                  setDropTarget('ungrouped');
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  handleDrop(null, null);
-                }}
-                className={`min-h-[8px] rounded-md ${dropTarget === 'ungrouped' ? 'ring-1 ring-ring' : ''}`}
+              <Button
+                variant="secondary"
+                size="icon"
+                className="m-2 size-8"
+                onClick={onToggleCollapse}
+                aria-label="Scene Outliner öffnen"
               >
-                {ungrouped.map(renderModelRow)}
-              </div>
-            </>
-          )}
+                <Layers className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Scene Outliner</TooltipContent>
+          </Tooltip>
         </div>
-      </ScrollArea>
-    </div>
+      )}
+      <Sheet
+        side="left"
+        open={!collapsed}
+        className="absolute left-0 top-[49px] z-10 flex h-[calc(100%-49px)] w-[260px] flex-col border-r glass-surface"
+      >
+        <div className="flex items-center justify-between px-3 py-2">
+          <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Scene</span>
+          <div className="flex items-center gap-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-6" onClick={onCreateGroup} aria-label="Neue Gruppe">
+                  <FolderPlus className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Neue Gruppe</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-6" onClick={onToggleCollapse} aria-label="Scene Outliner schließen">
+                  <ChevronRight className="h-3 w-3 rotate-180" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Einklappen</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+        <Separator />
+        <ScrollArea className="flex-1">
+          <div className="p-1">
+            {sectionLabel('Welt')}
+            {renderWorldRow()}
+
+            {environment && (
+              <>
+                {sectionLabel('Umgebung')}
+                {renderEnvironmentRow()}
+              </>
+            )}
+
+            {lights.length > 0 && (
+              <>
+                {sectionLabel('Licht')}
+                {[...lights].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map(renderLightRow)}
+              </>
+            )}
+
+            {sectionLabel('Modelle')}
+
+            {models.length === 0 && groups.length === 0 ? (
+              <p className="px-3 py-4 text-center text-xs text-muted-foreground">Noch keine Modelle vorhanden</p>
+            ) : (
+              <>
+                {sortedGroups.map((group) => {
+                  const members = models.filter((m) => m.groupId === group.id);
+                  const isGroupDrop = dropTarget === `group:${group.id}`;
+                  return (
+                    <Collapsible
+                      key={group.id}
+                      open={!group.collapsed}
+                      onOpenChange={() => onToggleGroupCollapsed(group.id)}
+                    >
+                      <div
+                        className={`group/g flex items-center gap-1 rounded-md px-1 py-1 hover:bg-accent/40 ${
+                          isGroupDrop ? 'ring-1 ring-ring' : ''
+                        }`}
+                        onDragOver={(e) => {
+                          if (!draggingId) return;
+                          e.preventDefault();
+                          setDropTarget(`group:${group.id}`);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleDrop(group.id, null);
+                        }}
+                      >
+                        <CollapsibleTrigger asChild>
+                          <button className="shrink-0 text-muted-foreground hover:text-foreground" type="button" aria-label="Gruppe auf/zuklappen">
+                            {group.collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                          </button>
+                        </CollapsibleTrigger>
+
+                        {renamingGroupId === group.id ? (
+                          <Input
+                            className="h-6 flex-1 px-1 text-xs"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onBlur={() => commitGroupRename(group.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commitGroupRename(group.id);
+                              if (e.key === 'Escape') setRenamingGroupId(null);
+                              e.stopPropagation();
+                            }}
+                            autoFocus
+                          />
+                        ) : (
+                          <span
+                            className="flex-1 truncate text-xs font-medium"
+                            onDoubleClick={() => startRename(group.id, group.name, 'group')}
+                          >
+                            {group.name}
+                          </span>
+                        )}
+
+                        <span className="shrink-0 text-[10px] text-muted-foreground">{members.length}</span>
+
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              className="shrink-0 opacity-0 group-hover/g:opacity-100"
+                              type="button"
+                              aria-label="Gruppen-Optionen"
+                            >
+                              <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => startRename(group.id, group.name, 'group')}>
+                              <Pencil className="mr-2 h-3.5 w-3.5" />
+                              Umbenennen
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-red-400 focus:text-red-400" onClick={() => onDeleteGroup(group.id)}>
+                              <Trash2 className="mr-2 h-3.5 w-3.5" />
+                              Gruppe auflösen
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                      <CollapsibleContent>
+                        <div className="ml-3 border-l border-border/60 pl-1">
+                          {members.length === 0 ? (
+                            <p className="px-2 py-1 text-[11px] text-muted-foreground/70">Leer. Modelle hierher ziehen</p>
+                          ) : (
+                            members.map(renderModelRow)
+                          )}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  );
+                })}
+
+                {sortedGroups.length > 0 && ungrouped.length > 0 && <Separator className="my-1" />}
+
+                <div
+                  onDragOver={(e) => {
+                    if (!draggingId) return;
+                    e.preventDefault();
+                    setDropTarget('ungrouped');
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    handleDrop(null, null);
+                  }}
+                  className={`min-h-[8px] rounded-md ${dropTarget === 'ungrouped' ? 'ring-1 ring-ring' : ''}`}
+                >
+                  {ungrouped.map(renderModelRow)}
+                </div>
+              </>
+            )}
+          </div>
+        </ScrollArea>
+      </Sheet>
+    </>
   );
 }
 

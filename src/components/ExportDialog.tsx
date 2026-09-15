@@ -30,7 +30,7 @@ import {
   GlassDialogHeader,
 } from '@/components/ui/glass-dialog';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
+import { ChoiceCard } from '@/components/ui/choice-card';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -791,27 +791,28 @@ export function ExportDialog({
                 <p className="text-xs text-muted-foreground">{activeMode.hint}</p>
               </div>
 
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0 space-y-0.5">
-                  <Label htmlFor="export-transparent">Transparenter Hintergrund</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {transparent
-                      ? 'Zeigt die Seite hinter dem 3D-Widget durch.'
-                      : 'Nutzt die Hintergrundfarbe aus der Welt-Einstellung.'}
-                  </p>
-                  {!transparent && (
-                    <div className="flex items-center gap-2 pt-1">
-                      <span
-                        className="h-4 w-4 shrink-0 rounded-sm border border-border"
-                        style={{ backgroundColor: project.settings.background }}
-                        aria-hidden
-                      />
-                      <code className="text-xs text-foreground">{project.settings.background}</code>
-                    </div>
-                  )}
-                </div>
-                <Switch id="export-transparent" checked={transparent} onCheckedChange={setTransparent} />
-              </div>
+              <ChoiceCard
+                id="export-transparent"
+                label="Transparenter Hintergrund"
+                description={
+                  transparent
+                    ? 'Zeigt die Seite hinter dem 3D-Widget durch.'
+                    : 'Nutzt die Hintergrundfarbe aus der Welt-Einstellung.'
+                }
+                checked={transparent}
+                onCheckedChange={setTransparent}
+              >
+                {!transparent && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <span
+                      className="h-4 w-4 shrink-0 rounded-sm border border-border"
+                      style={{ backgroundColor: project.settings.background }}
+                      aria-hidden
+                    />
+                    <code className="text-xs text-foreground">{project.settings.background}</code>
+                  </div>
+                )}
+              </ChoiceCard>
 
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
@@ -838,19 +839,19 @@ export function ExportDialog({
               </div>
 
               {environment && (
-                <div className="flex items-center justify-between gap-4">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="export-include-env">HDRI / Umgebung einbeziehen</Label>
-                    <p className="text-xs text-muted-foreground">
-                      {transparent
-                        ? 'Licht und Spiegelung'
-                        : environment.showBackground
-                          ? 'Wird als Hintergrund und Spiegelung eingebettet.'
-                          : 'Nur Licht und Spiegelung, kein Hintergrund.'}
-                    </p>
-                  </div>
-                  <Switch id="export-include-env" checked={includeEnv} onCheckedChange={setIncludeEnv} />
-                </div>
+                <ChoiceCard
+                  id="export-include-env"
+                  label="HDRI / Umgebung einbeziehen"
+                  description={
+                    transparent
+                      ? 'Licht und Spiegelung'
+                      : environment.showBackground
+                        ? 'Wird als Hintergrund und Spiegelung eingebettet.'
+                        : 'Nur Licht und Spiegelung, kein Hintergrund.'
+                  }
+                  checked={includeEnv}
+                  onCheckedChange={setIncludeEnv}
+                />
               )}
             </div>
             )}

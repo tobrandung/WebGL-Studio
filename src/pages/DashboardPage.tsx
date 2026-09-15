@@ -27,6 +27,16 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ProjectCard } from '@/components/ProjectCard';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination';
 import { ExportDialog } from '@/components/ExportDialog';
 import { useProjects } from '@/hooks/useProjects';
 import { useTeamSync } from '@/hooks/useTeamSync';
@@ -147,8 +157,56 @@ function StatusBar({
   );
 }
 
+/* Hintergrund für Welcome-Screen, Projektliste und Ladezustand gleichermaßen.
+   `fixed`, damit er beim Scrollen durch viele Projekte stehen bleibt statt
+   unten auszulaufen. `100% 100%` statt `cover` oder `contain`: der Verlauf wird
+   auf das Fenster gezogen, damit er immer vollständig zu sehen ist. Verzerrt,
+   aber bei einem weichen Farbverlauf sieht man das nicht, und weder Anschnitt
+   noch Ränder bleiben übrig. */
+function PageBackdrop() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none fixed inset-0 -z-10 bg-[url('/app-background.avif')] bg-[length:100%_100%] bg-center bg-no-repeat opacity-50"
+    />
+  );
+}
+
+/** A project card with its content still missing: thumbnail, title, footer. */
+function ProjectCardSkeleton() {
+  return (
+    <div className="glass-surface flex h-full flex-col overflow-hidden rounded-2xl ring-1 ring-border">
+      <Skeleton className="aspect-video w-full rounded-none" />
+      <div className="flex flex-1 flex-col gap-4 p-4">
+        <Skeleton className="h-5 w-2/3" />
+        <Skeleton className="mt-auto h-4 w-full" />
+      </div>
+    </div>
+  );
+}
+
 /** Seconds each column lags behind the one to its left. */
 const COLUMN_STAGGER = 0.06;
+
+/** Projects per page. Four full rows on the widest grid. */
+const PAGE_SIZE = 16;
+
+/**
+ * The page numbers to offer, with `null` for a gap. Up to seven pages are
+ * listed in full; past that only the first, the last and the current page's
+ * neighbours, so the row keeps its width however long the list gets.
+ */
+function pageItems(current: number, count: number): Array<number | null> {
+  if (count <= 7) return Array.from({ length: count }, (_, i) => i + 1);
+  const pages = new Set([1, count, current, current - 1, current + 1]);
+  const sorted = [...pages].filter((p) => p >= 1 && p <= count).sort((a, b) => a - b);
+  const items: Array<number | null> = [];
+  for (const [i, page] of sorted.entries()) {
+    if (i > 0 && page - sorted[i - 1] > 1) items.push(null);
+    items.push(page);
+  }
+  return items;
+}
 
 type SortField = 'updated' | 'created' | 'name';
 type SortDirection = 'desc' | 'asc';
@@ -214,6 +272,7 @@ export function DashboardPage() {
   const [search, setSearch] = useState('');
   const [sortField, setSortField] = useState<SortField>('updated');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [page, setPage] = useState(1);
 
   const query = search.trim().toLowerCase();
   const directions = directionLabels(sortField);
@@ -222,6 +281,20 @@ export function DashboardPage() {
     () => sortEntries(projects.filter((p) => matchesQuery(p.name, query)), sortField, sortDirection),
     [projects, query, sortField, sortDirection],
   );
+
+  const pageCount = Math.max(1, Math.ceil(visibleProjects.length / PAGE_SIZE));
+  // Clamped rather than trusted: deleting the last project on the last page
+  // would otherwise leave the grid empty with no way back.
+  const currentPage = Math.min(page, pageCount);
+  const pagedProjects = visibleProjects.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
+
+  // A new search or sort order starts at the top again.
+  useEffect(() => {
+    setPage(1);
+  }, [query, sortField, sortDirection]);
 
   // Only used to decide whether a card needs to say who made it; a failure just
   // means every synced project shows its author, which is no worse than before.
@@ -310,8 +383,21 @@ export function DashboardPage() {
   // then swapping it for a grid half a second later.
   if (loading || (projects.length === 0 && syncing)) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="animate-pulse text-muted-foreground">Laden…</div>
+      <div className="min-h-screen px-6 py-8 lg:px-8">
+        <PageBackdrop />
+        <div className="mb-6 flex flex-wrap items-end gap-4">
+          <Brand />
+          <div className="flex flex-1 flex-wrap items-end gap-4 pb-1">
+            <Skeleton className="h-9 min-w-48 flex-1" />
+            <Skeleton className="h-9 w-32" />
+            <Skeleton className="h-9 w-40" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {Array.from({ length: 8 }, (_, index) => (
+            <ProjectCardSkeleton key={index} />
+          ))}
+        </div>
       </div>
     );
   }
@@ -359,16 +445,7 @@ export function DashboardPage() {
       // Ends above the bar rather than behind it, whatever height it has.
       style={showStatusBar ? { paddingBottom: 'calc(var(--status-bar-height, 0px) + 2rem)' } : undefined}
     >
-      {/* Hintergrund für Welcome-Screen und Projektliste gleichermaßen.
-          `fixed`, damit er beim Scrollen durch viele Projekte stehen bleibt
-          statt unten auszulaufen. `100% 100%` statt `cover` oder `contain`: der
-          Verlauf wird auf das Fenster gezogen, damit er immer vollständig zu
-          sehen ist. Verzerrt, aber bei einem weichen Farbverlauf sieht man das
-          nicht, und weder Anschnitt noch Ränder bleiben übrig. */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 -z-10 bg-[url('/app-background.avif')] bg-[length:100%_100%] bg-center bg-no-repeat opacity-50"
-      />
+      <PageBackdrop />
       {isEmpty ? (
         <div className="flex h-[calc(100vh-4rem)] flex-col items-center justify-center gap-6">
           <Brand size="lg" />
@@ -461,7 +538,7 @@ export function DashboardPage() {
             ref={gridRef}
             className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           >
-            {visibleProjects.map((project, index) => (
+            {pagedProjects.map((project, index) => (
               <ProjectCard
                 key={project.id}
                 project={project}
@@ -485,6 +562,39 @@ export function DashboardPage() {
               />
             ))}
           </div>
+
+          {pageCount > 1 && (
+            <Pagination className="pt-8">
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    disabled={currentPage === 1}
+                    onClick={() => setPage(currentPage - 1)}
+                  />
+                </PaginationItem>
+                {pageItems(currentPage, pageCount).map((item, index) => (
+                  <PaginationItem key={item ?? `gap-${index}`}>
+                    {item === null ? (
+                      <PaginationEllipsis />
+                    ) : (
+                      <PaginationLink
+                        isActive={item === currentPage}
+                        onClick={() => setPage(item)}
+                      >
+                        {item}
+                      </PaginationLink>
+                    )}
+                  </PaginationItem>
+                ))}
+                <PaginationItem>
+                  <PaginationNext
+                    disabled={currentPage === pageCount}
+                    onClick={() => setPage(currentPage + 1)}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          )}
 
           {query && visibleProjects.length === 0 && (
             <p className="py-16 text-center text-muted-foreground">

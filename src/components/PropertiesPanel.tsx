@@ -5,6 +5,7 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { Sheet } from '@/components/ui/sheet';
 import { Camera, Copy, Crosshair, ImageUp, Link2, Link2Off, Trash2 } from 'lucide-react';
 import { InfoHint } from '@/components/ui/info-hint';
 import { cn, formatBytes } from '@/lib/utils';
@@ -62,6 +63,8 @@ type PropertiesPanelProps = {
   onJumpToKeyframe: (id: string) => void;
   onDuplicateKeyframe: (id: string) => void;
   onDeleteKeyframe: (id: string) => void;
+  /** Whether anything is selected. Drives the slide in and out. */
+  open: boolean;
 };
 
 const RAD_TO_DEG = 180 / Math.PI;
@@ -102,9 +105,14 @@ export function PropertiesPanel({
   onJumpToKeyframe,
   onDuplicateKeyframe,
   onDeleteKeyframe,
+  open,
 }: PropertiesPanelProps) {
   return (
-    <div className="absolute right-0 top-[49px] z-10 flex h-[calc(100%-49px)] w-[260px] flex-col border-l glass-surface">
+    <Sheet
+      side="right"
+      open={open}
+      className="absolute right-0 top-[49px] z-10 flex h-[calc(100%-49px)] w-[260px] flex-col border-l glass-surface"
+    >
       <div className="px-3 py-2">
         <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
           Eigenschaften
@@ -149,7 +157,7 @@ export function PropertiesPanel({
           />
         )}
       </div>
-    </div>
+    </Sheet>
   );
 }
 
