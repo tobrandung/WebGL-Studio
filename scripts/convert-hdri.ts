@@ -1,21 +1,32 @@
 /**
- * Turns source `.exr` / `.hdr` files into web-ready Radiance presets under
+ * Turns source `.exr` / `.hdr` files into web-ready presets under
  * `public/hdri/`, plus the generated manifest the picker reads.
  *
- * Runs on plain `node` — no build step and no new dependency: Node strips the
- * types itself, three is already installed, and every module below
- * `src/lib/hdri/` that this touches is DOM-free on purpose, so the browser and
- * the CLI produce byte-identical output.
+ * Output is Ultra HDR, not Radiance. Radiance is the format this wrote first,
+ * and it is the one the studio cannot publish: `image/vnd.radiance` is not on
+ * the upload allowlist, deliberately, because a 1k `.hdr` is 1.4 MB and has no
+ * business on a web page. Every project that picked a preset therefore failed
+ * to share its environment. Ultra HDR keeps the real highlight range at about a
+ * tenth of the size and is an ordinary JPEG to anything that does not know
+ * about gain maps.
+ *
+ * Decode and resample still run on plain `node`: they are pure arithmetic and
+ * every module below `src/lib/hdri/` that this touches is DOM-free on purpose.
+ * The encoder is the exception. It drives gain-map passes through a
+ * `WebGLRenderer`, so that step goes to a headless Chrome over
+ * `scripts/browser-encoder.ts`, running the app's own encoder. Pass
+ * `--radiance` for the old behaviour, which needs no browser.
  *
  *   node scripts/convert-hdri.ts
  *   node scripts/convert-hdri.ts assets/example-hdris/satara_night_4k.exr --size 2048x1024
  */
 
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { convertToRadiance, equirectHeightFor } from '../src/lib/hdri/pipeline.ts';
-import { slugifyName } from '../src/lib/hdri/format.ts';
+import { extensionForFormat, slugifyName } from '../src/lib/hdri/format.ts';
+import { startBrowserEncoder, type BrowserEncoder } from './browser-encoder.ts';
 import { sampleSwatch } from '../src/lib/hdri/swatch.ts';
 import type { HdriPreset } from '../src/lib/hdri/types.ts';
 
@@ -23,6 +34,8 @@ const ROOT = resolve(fileURLToPath(import.meta.url), '../..');
 const DEFAULT_SOURCE_DIR = join(ROOT, 'assets/example-hdris');
 const DEFAULT_OUT_DIR = join(ROOT, 'public/hdri');
 const DEFAULT_MANIFEST = join(ROOT, 'src/lib/hdri/presets.generated.ts');
+/** Scratch space for the float dumps the browser encoder reads. Removed after. */
+const TMP_DIR = join(ROOT, '.hdri-encode');
 const SOURCE_EXTENSIONS = new Set(['.exr', '.hdr']);
 
 type Options = {
@@ -33,6 +46,8 @@ type Options = {
   preferFloat32: boolean;
   force: boolean;
   dryRun: boolean;
+  /** Write Radiance instead of Ultra HDR. Needs no browser, cannot be published. */
+  radiance: boolean;
 };
 
 function parseArgs(argv: string[]): Options {
@@ -43,6 +58,7 @@ function parseArgs(argv: string[]): Options {
   let preferFloat32 = true;
   let force = false;
   let dryRun = false;
+  let radiance = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -64,6 +80,9 @@ function parseArgs(argv: string[]): Options {
       case '--half':
         preferFloat32 = false;
         break;
+      case '--radiance':
+        radiance = true;
+        break;
       case '--force':
         force = true;
         break;
@@ -80,6 +99,7 @@ function parseArgs(argv: string[]): Options {
             '  --size WxH     target resolution, repeatable. Default 1024x512',
             '  --out DIR      output directory. Default public/hdri',
             '  --manifest P   generated module. Default src/lib/hdri/presets.generated.ts',
+            '  --radiance     write .hdr instead of Ultra HDR (no browser needed)',
             '  --half         decode at half precision (less memory, clips above 65504)',
             '  --force        overwrite existing outputs',
             '  --dry-run      report what would be written',
@@ -93,7 +113,7 @@ function parseArgs(argv: string[]): Options {
   }
 
   if (!sizes.length) sizes.push({ width: 1024, height: 512 });
-  return { files, sizes, outDir, manifest, preferFloat32, force, dryRun };
+  return { files, sizes, outDir, manifest, preferFloat32, force, dryRun, radiance };
 }
 
 async function collectSources(files: string[]): Promise<string[]> {
@@ -206,6 +226,15 @@ async function main(): Promise<void> {
 
   const presets: HdriPreset[] = [];
 
+  // Started lazily and only when something is actually going to be encoded, so
+  // a dry run and `--radiance` never pay for a browser.
+  const browser: { encoder?: BrowserEncoder } = {};
+  const browserEncoder = async (): Promise<BrowserEncoder> => {
+    browser.encoder ??= await startBrowserEncoder(ROOT);
+    return browser.encoder;
+  };
+
+  try {
   for (const source of sources) {
     const fileName = basename(source);
     const slug = slugFor(fileName);
@@ -216,7 +245,8 @@ async function main(): Promise<void> {
     const buffer = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
 
     for (const size of options.sizes) {
-      const outName = `${slug}-${tierFor(size.width)}.hdr`;
+      const format = options.radiance ? 'hdr' : 'ultrahdr';
+      const outName = `${slug}-${tierFor(size.width)}${extensionForFormat(format)}`;
       const outPath = join(options.outDir, outName);
       if (!options.force && !options.dryRun && (await exists(outPath))) {
         console.log(`  skip  ${outName} (exists, use --force)`);
@@ -224,10 +254,37 @@ async function main(): Promise<void> {
       }
 
       const started = Date.now();
-      const { bytes, image, source: info } = await convertToRadiance(buffer, fileName, size, {
-        preferFloat32: options.preferFloat32,
-        comments: [`converted from ${fileName} by scripts/convert-hdri.ts`],
-      });
+      // Radiance is produced either way: it is what carries the resampled image
+      // out of the Node pipeline, and for Ultra HDR only the float data is used.
+      const { bytes: radianceBytes, image, source: info } = await convertToRadiance(
+        buffer,
+        fileName,
+        size,
+        {
+          preferFloat32: options.preferFloat32,
+          comments: [`converted from ${fileName} by scripts/convert-hdri.ts`],
+        },
+      );
+
+      let bytes = radianceBytes;
+      if (!options.radiance) {
+        // The float image goes to the browser as a raw dump next to the page.
+        // Base64 through the DevTools protocol would be a third bigger for the
+        // 6 MB a 1k image weighs, and it is thrown away either way.
+        const dumpName = `${slug}-${tierFor(size.width)}.f32`;
+        const dumpPath = join(TMP_DIR, dumpName);
+        await mkdir(TMP_DIR, { recursive: true });
+        await writeFile(dumpPath, Buffer.from(image.data.buffer, image.data.byteOffset, image.data.byteLength));
+        const encoder = await browserEncoder();
+        bytes = await encoder.encode({
+          url: `${encoder.origin}/${relative(ROOT, dumpPath)}`,
+          width: image.width,
+          height: image.height,
+          maxComponent: image.maxComponent,
+          format: 'ultrahdr',
+        });
+        await rm(dumpPath, { force: true });
+      }
 
       if (!options.dryRun) await writeFile(outPath, bytes);
 
@@ -235,7 +292,7 @@ async function main(): Promise<void> {
         id: `${slug}-${tierFor(size.width)}`,
         label: labelFor(slug),
         file: outName,
-        format: 'hdr',
+        format,
         width: image.width,
         height: image.height,
         byteSize: bytes.byteLength,
@@ -250,6 +307,10 @@ async function main(): Promise<void> {
           `  peak ${info.maxComponent.toFixed(1)}  ${Date.now() - started} ms`,
       );
     }
+  }
+  } finally {
+    await browser.encoder?.close();
+    await rm(TMP_DIR, { recursive: true, force: true });
   }
 
   presets.sort((a, b) => a.label.localeCompare(b.label, 'de') || a.width - b.width);

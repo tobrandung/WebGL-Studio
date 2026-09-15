@@ -19,3 +19,6 @@ dist-widget/
 # lokale Miniflare-Zustand, in dem `wrangler dev` R2 simuliert.
 .dev.vars
 .wrangler/
+
+# Scratch space for the browser-side HDRI encoder (scripts/convert-hdri.ts).
+.hdri-encode/

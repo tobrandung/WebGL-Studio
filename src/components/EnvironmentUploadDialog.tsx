@@ -28,7 +28,11 @@ import {
   RESOLUTION_WARN,
   textureBytes,
 } from '@/lib/hdri/budget';
-import { ACCEPTED_ENVIRONMENT_EXTENSIONS, ENVIRONMENT_FORMAT_LABEL } from '@/lib/hdri/format';
+import {
+  ACCEPTED_ENVIRONMENT_EXTENSIONS,
+  ENVIRONMENT_CONTENT_TYPE,
+  ENVIRONMENT_FORMAT_LABEL,
+} from '@/lib/hdri/format';
 import {
   FORMAT_HINT,
   FORMAT_LABEL,
@@ -157,7 +161,11 @@ export function EnvironmentUploadDialog({
         const response = await fetch(`${import.meta.env.BASE_URL}hdri/${preset.file}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const blob = await response.blob();
-        const presetFile = new File([blob], preset.file, { type: 'image/vnd.radiance' });
+        // The type comes from the preset's own format. Hardcoding Radiance
+        // here outlived the Radiance presets: they ship as Ultra HDR now.
+        const presetFile = new File([blob], preset.file, {
+          type: ENVIRONMENT_CONTENT_TYPE[preset.format],
+        });
         await onUpload({
           file: presetFile,
           format: preset.format,

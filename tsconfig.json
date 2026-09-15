@@ -22,5 +22,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"]
+  // The encoder page is browser code that happens to live in scripts/.
+  "include": ["src", "scripts/hdri-encoder.ts"]
 }

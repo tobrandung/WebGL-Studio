@@ -13,5 +13,9 @@
   // they actually import, so this program is exactly the Node-reachable subset.
   // Listing src/lib/hdri wholesale would drag in the browser-only encoders,
   // whose dependencies do not resolve under nodenext.
-  "include": ["scripts"]
+  "include": ["scripts"],
+  // The browser half of the preset conversion. It imports the WebGL encoder,
+  // whose dependencies do not resolve under nodenext, and it never runs in
+  // Node. tsconfig.json checks it instead.
+  "exclude": ["scripts/hdri-encoder.ts"]
 }
