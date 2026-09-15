@@ -1543,11 +1543,25 @@ export function EditorPage() {
     return { keyframe: keyframes[index], index: index + 1, part: parsed.part };
   }, [selectedKind, selectedId, keyframes]);
 
+  /**
+   * The mirrored transform arrives one render late, because the effect that
+   * reads it out of the scene graph runs after the selection commits. Waiting
+   * for it made the properties panel count as "nothing selected" for that one
+   * frame, and the sheet replayed its slide-in every time a light or the
+   * environment gave way to a model. So the persisted record stands in until
+   * the mirror catches up; `syncModelTransform` falls back to exactly the same
+   * values when a model's mesh has not finished loading.
+   */
   const selectedModel = useMemo<ModelSelection | null>(() => {
-    if (selectedKind !== 'model' || !selectedId || !modelTransform) return null;
+    if (selectedKind !== 'model' || !selectedId) return null;
     const entry = models.find((m) => m.id === selectedId);
     if (!entry) return null;
-    return { id: entry.id, name: entry.name, ...modelTransform };
+    const transform = modelTransform ?? {
+      position: entry.position,
+      rotation: entry.rotation,
+      scale: entry.scale,
+    };
+    return { id: entry.id, name: entry.name, ...transform };
   }, [selectedKind, selectedId, models, modelTransform]);
 
   const selectKeyframe = useCallback(
@@ -1923,8 +1937,6 @@ export function EditorPage() {
   return (
     <div className="relative h-screen w-screen overflow-hidden">
       <EditorToolbar
-        transformMode={transformModeState}
-        onTransformModeChange={handleTransformModeChange}
         onAddModel={() => setShowUploadDialog(true)}
         onAddLight={handleAddLight}
         onAddEnvironment={() => setShowEnvDialog(true)}
@@ -2035,6 +2047,7 @@ export function EditorPage() {
         )}
         model={selectedModel}
         transformMode={transformModeState}
+        onTransformModeChange={handleTransformModeChange}
         scaleLocked={scaleLocked}
         onScaleLockChange={setScaleLocked}
         light={selectedKind === 'light' ? lights.find((l) => l.id === selectedId) ?? null : null}

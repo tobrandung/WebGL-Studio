@@ -6,7 +6,19 @@ import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Sheet } from '@/components/ui/sheet';
-import { Camera, Copy, Crosshair, ImageUp, Link2, Link2Off, Trash2 } from 'lucide-react';
+import {
+  Camera,
+  Copy,
+  Crosshair,
+  ImageUp,
+  Link2,
+  Link2Off,
+  Maximize,
+  Move,
+  RotateCw,
+  Trash2,
+  type LucideIcon,
+} from 'lucide-react';
 import { InfoHint } from '@/components/ui/info-hint';
 import { cn, formatBytes } from '@/lib/utils';
 import { environmentFormat, type LightEntry, type EnvironmentConfig } from '@/lib/db';
@@ -35,8 +47,9 @@ export type ModelSelection = {
 
 type PropertiesPanelProps = {
   model: ModelSelection | null;
-  /** Decides which of the model's transform values the panel exposes. */
+  /** Which transform channel the viewport gizmo currently drags. */
   transformMode: TransformMode;
+  onTransformModeChange: (mode: TransformMode) => void;
   /** Whether editing one scale axis carries the factor to the other two. */
   scaleLocked: boolean;
   onScaleLockChange: (locked: boolean) => void;
@@ -86,6 +99,7 @@ function ValueLabel({ label, value }: { label: string; value: string }) {
 export function PropertiesPanel({
   model,
   transformMode,
+  onTransformModeChange,
   scaleLocked,
   onScaleLockChange,
   light,
@@ -124,6 +138,7 @@ export function PropertiesPanel({
           <ModelProperties
             model={model}
             transformMode={transformMode}
+            onTransformModeChange={onTransformModeChange}
             scaleLocked={scaleLocked}
             onScaleLockChange={onScaleLockChange}
             onUpdate={onUpdateModelTransform}
@@ -406,6 +421,16 @@ function LightProperties({
     <>
       <p className="text-xs text-muted-foreground">{typeLabel[light.type]}</p>
 
+      {/* Ambient light has no place in the scene; its `position` is ignored. */}
+      {light.type !== 'ambient' && (
+        <TransformChannel
+          icon={Move}
+          label="Position"
+          value={light.position}
+          onChange={(position) => onUpdate(light.id, { position })}
+        />
+      )}
+
       <Row>
         <Label htmlFor="light-color" className="text-xs">
           Farbe
@@ -482,12 +507,6 @@ function LightProperties({
             />
           </Row>
         </>
-      )}
-
-      {light.type !== 'ambient' && (
-        <p className="text-[11px] text-muted-foreground">
-          Position im Viewport per Verschieben-Gizmo anpassen.
-        </p>
       )}
     </>
   );
@@ -594,17 +613,15 @@ function formatAxis(value: number): string {
  * siblings, proportional scaling, or an undo, left those fields showing the
  * old number while the scene had already changed.
  */
-function Vec3Field({
+function AxisInputs({
   label,
   value,
   onChange,
-  action,
 }: {
+  /** Names the fields for screen readers; the visible heading is separate. */
   label: string;
   value: [number, number, number];
   onChange: (next: [number, number, number]) => void;
-  /** Optional control shown next to the label, e.g. the proportional lock. */
-  action?: React.ReactNode;
 }) {
   const [draft, setDraft] = useState<{ axis: number; text: string } | null>(null);
 
@@ -618,92 +635,141 @@ function Vec3Field({
   };
 
   return (
+    <div className="grid grid-cols-3 gap-1">
+      {AXES.map((axis, index) => (
+        <div key={axis} className="relative">
+          <span className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] font-medium text-muted-foreground">
+            {axis}
+          </span>
+          <Input
+            value={draft?.axis === index ? draft.text : formatAxis(value[index])}
+            onChange={(e) => setDraft({ axis: index, text: e.target.value })}
+            onBlur={(e) => commit(index, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+            }}
+            inputMode="decimal"
+            spellCheck={false}
+            className="pl-5 font-mono text-xs"
+            aria-label={`${label} ${axis}`}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Axis fields under a plain label, for values no gizmo mode belongs to. */
+function Vec3Field({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: [number, number, number];
+  onChange: (next: [number, number, number]) => void;
+}) {
+  return (
     <Row>
-      <div className="flex items-center justify-between gap-2">
-        <Label className="text-xs">{label}</Label>
-        {action}
-      </div>
-      <div className="grid grid-cols-3 gap-1">
-        {AXES.map((axis, index) => (
-          <div key={axis} className="relative">
-            <span className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] font-medium text-muted-foreground">
-              {axis}
-            </span>
-            <Input
-              value={draft?.axis === index ? draft.text : formatAxis(value[index])}
-              onChange={(e) => setDraft({ axis: index, text: e.target.value })}
-              onBlur={(e) => commit(index, e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur();
-              }}
-              inputMode="decimal"
-              spellCheck={false}
-              className="pl-5 font-mono text-xs"
-              aria-label={`${label} ${axis}`}
-            />
-          </div>
-        ))}
-      </div>
+      <Label className="text-xs">{label}</Label>
+      <AxisInputs label={label} value={value} onChange={onChange} />
     </Row>
   );
 }
 
 /**
- * Which transform the panel exposes follows the active tool, the way a DCC's
- * coordinate manager does: the toolbar picks the channel, the fields edit it.
- * Rotation is shown in degrees. Radians in a UI field would be unreadable.
+ * One transform channel, its heading included.
+ *
+ * The heading doubles as the gizmo's mode switch, which is what let the tool
+ * icons leave the toolbar: every channel is on screen at once, and the
+ * highlighted row is the one the viewport gizmo drags. A light has only its
+ * position, so there is nothing to switch and the heading stays a label.
  */
-const TRANSFORM_FIELD: Record<TransformMode, { key: ModelTransformKey; label: string }> = {
-  translate: { key: 'position', label: 'Position' },
-  rotate: { key: 'rotation', label: 'Rotation (°)' },
-  scale: { key: 'scale', label: 'Skalierung' },
-};
+function TransformChannel({
+  icon: Icon,
+  label,
+  value,
+  onChange,
+  active,
+  onActivate,
+  action,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: [number, number, number];
+  onChange: (next: [number, number, number]) => void;
+  active?: boolean;
+  onActivate?: () => void;
+  /** Optional control on the heading row, e.g. the proportional lock. */
+  action?: React.ReactNode;
+}) {
+  const heading = (
+    <>
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      {label}
+    </>
+  );
+
+  return (
+    <Row>
+      <div className="flex items-center justify-between gap-2">
+        {onActivate ? (
+          <button
+            type="button"
+            onClick={onActivate}
+            aria-pressed={active}
+            className={cn(
+              'flex items-center gap-2 rounded border border-transparent px-2 py-1 text-xs transition-colors',
+              active ? 'active-surface' : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {heading}
+          </button>
+        ) : (
+          <span className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
+            {heading}
+          </span>
+        )}
+        {action}
+      </div>
+      <AxisInputs label={label} value={value} onChange={onChange} />
+    </Row>
+  );
+}
 
 function ModelProperties({
   model,
   transformMode,
+  onTransformModeChange,
   scaleLocked,
   onScaleLockChange,
   onUpdate,
 }: {
   model: ModelSelection;
   transformMode: TransformMode;
+  onTransformModeChange: (mode: TransformMode) => void;
   scaleLocked: boolean;
   onScaleLockChange: (locked: boolean) => void;
   onUpdate: (key: ModelTransformKey, value: [number, number, number]) => void;
 }) {
-  const { key, label } = TRANSFORM_FIELD[transformMode];
-  const isRotation = key === 'rotation';
-  const isScale = key === 'scale';
-  const value = isRotation
-    ? (model.rotation.map((r) => r * RAD_TO_DEG) as [number, number, number])
-    : model[key];
-
-  const commit = (next: [number, number, number]) => {
-    if (isRotation) {
-      onUpdate('rotation', next.map((d) => d * DEG_TO_RAD) as [number, number, number]);
+  const commitScale = (next: [number, number, number]) => {
+    if (!scaleLocked) {
+      onUpdate('scale', next);
       return;
     }
-
-    if (isScale && scaleLocked) {
-      const axis = next.findIndex((v, i) => v !== value[i]);
-      if (axis >= 0) {
-        const from = value[axis];
-        const to = next[axis];
-        // Scale the other axes by the same factor so a non-uniform model keeps
-        // its proportions. A zero axis has no ratio to carry over, so the typed
-        // value is simply copied across.
-        onUpdate(
-          'scale',
-          from === 0
-            ? [to, to, to]
-            : (value.map((v) => v * (to / from)) as [number, number, number]),
-        );
-        return;
-      }
-    }
-
-    onUpdate(key, next);
+    const axis = next.findIndex((v, i) => v !== model.scale[i]);
+    if (axis < 0) return;
+    const from = model.scale[axis];
+    const to = next[axis];
+    // Scale the other axes by the same factor so a non-uniform model keeps its
+    // proportions. A zero axis has no ratio to carry over, so the typed value
+    // is simply copied across.
+    onUpdate(
+      'scale',
+      from === 0
+        ? [to, to, to]
+        : (model.scale.map((v) => v * (to / from)) as [number, number, number]),
+    );
   };
 
   return (
@@ -712,37 +778,63 @@ function ModelProperties({
         {model.name}
       </p>
 
-      <Vec3Field
-        label={label}
-        value={value}
-        onChange={commit}
+      <TransformChannel
+        icon={Move}
+        label="Position"
+        value={model.position}
+        onChange={(next) => onUpdate('position', next)}
+        active={transformMode === 'translate'}
+        onActivate={() => onTransformModeChange('translate')}
+      />
+
+      {/* Degrees, because radians in an input field are unreadable. */}
+      <TransformChannel
+        icon={RotateCw}
+        label="Rotation (°)"
+        value={model.rotation.map((r) => r * RAD_TO_DEG) as [number, number, number]}
+        onChange={(next) =>
+          onUpdate('rotation', next.map((d) => d * DEG_TO_RAD) as [number, number, number])
+        }
+        active={transformMode === 'rotate'}
+        onActivate={() => onTransformModeChange('rotate')}
+      />
+
+      <TransformChannel
+        icon={Maximize}
+        label="Skalierung"
+        value={model.scale}
+        onChange={commitScale}
+        active={transformMode === 'scale'}
+        onActivate={() => onTransformModeChange('scale')}
         action={
-          isScale ? (
-            <button
-              type="button"
-              onClick={() => onScaleLockChange(!scaleLocked)}
-              aria-pressed={scaleLocked}
-              aria-label={
-                scaleLocked ? 'Proportionale Skalierung ausschalten' : 'Proportional skalieren'
-              }
-              className={cn(
-                'flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors',
-                scaleLocked
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {scaleLocked ? <Link2 className="h-3 w-3" /> : <Link2Off className="h-3 w-3" />}
-              Proportional
-            </button>
-          ) : undefined
+          <button
+            type="button"
+            onClick={() => onScaleLockChange(!scaleLocked)}
+            aria-pressed={scaleLocked}
+            aria-label={
+              scaleLocked ? 'Proportionale Skalierung ausschalten' : 'Proportional skalieren'
+            }
+            className={cn(
+              'flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors',
+              scaleLocked
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {scaleLocked ? <Link2 className="h-3 w-3" /> : <Link2Off className="h-3 w-3" />}
+            Proportional
+          </button>
         }
       />
 
+      {scaleLocked && (
+        <p className="text-[11px] text-muted-foreground">
+          Proportional: ein Wert genügt, die anderen Achsen folgen im gleichen Verhältnis.
+        </p>
+      )}
+
       <p className="text-[11px] text-muted-foreground">
-        {isScale && scaleLocked
-          ? 'Ein Wert genügt. Die anderen Achsen folgen im gleichen Verhältnis.'
-          : 'Zeigt die Werte des aktiven Werkzeugs. Mit G (Verschieben), R (Rotieren) und S (Skalieren) umschalten.'}
+        Die hervorgehobene Zeile ist das Werkzeug im Viewport. Mit G, R und S umschalten.
       </p>
     </>
   );

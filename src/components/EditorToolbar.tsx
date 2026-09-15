@@ -1,9 +1,6 @@
 import {
   ArrowLeft,
   Plus,
-  Move,
-  RotateCw,
-  Maximize,
   Video,
   Undo2,
   Redo2,
@@ -36,13 +33,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import type { TransformMode } from '@/three/viewport';
 import type { LightType } from '@/lib/db';
 import type { HistoryState } from '@/hooks/useHistory';
 
 type EditorToolbarProps = {
-  transformMode: TransformMode;
-  onTransformModeChange: (mode: TransformMode) => void;
   onAddModel: () => void;
   onAddLight: (type: LightType) => void;
   onAddEnvironment: () => void;
@@ -62,8 +56,6 @@ type EditorToolbarProps = {
 };
 
 export function EditorToolbar({
-  transformMode,
-  onTransformModeChange,
   onAddModel,
   onAddLight,
   onAddEnvironment,
@@ -139,53 +131,6 @@ export function EditorToolbar({
           </Button>
         </TooltipTrigger>
         <TooltipContent>{history.canRedo ? `Wiederholen: ${history.redoLabel}` : 'Wiederholen (Cmd+Shift+Z)'}</TooltipContent>
-      </Tooltip>
-
-      <Separator orientation="vertical" className="mx-1.5 h-6" />
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            className={cn(transformMode === 'translate' && 'active-surface')}
-            size="icon"
-            onClick={() => onTransformModeChange('translate')}
-            aria-label="Verschieben"
-          >
-            <Move className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Verschieben (G)</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            className={cn(transformMode === 'rotate' && 'active-surface')}
-            size="icon"
-            onClick={() => onTransformModeChange('rotate')}
-            aria-label="Rotieren"
-          >
-            <RotateCw className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Rotieren (R)</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            className={cn(transformMode === 'scale' && 'active-surface')}
-            size="icon"
-            onClick={() => onTransformModeChange('scale')}
-            aria-label="Skalieren"
-          >
-            <Maximize className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Skalieren (S)</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="mx-1.5 h-6" />
