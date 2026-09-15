@@ -118,12 +118,40 @@ export async function uploadAsset(
   });
   if (!signResponse.ok) {
     const message = await apiErrorMessage(signResponse, `Signatur fehlgeschlagen (${signResponse.status}).`);
-    throw new ApiError(signResponse.status === 413 ? 'too-large' : 'rejected', message);
+    // 507 is the budget refusing, 413 the file itself being too big. Kept apart
+    // because the first is the team's problem and the second is this file's.
+    const kind =
+      signResponse.status === 507
+        ? 'quota-exceeded'
+        : signResponse.status === 413
+          ? 'too-large'
+          : 'rejected';
+    throw new ApiError(kind, message);
   }
 
   const signed = (await signResponse.json()) as SignResponse;
   await putWithProgress(signed, input.data, onProgress);
   return { key, url: signed.publicUrl, skipped: false };
+}
+
+/**
+ * How much of the team storage budget is used.
+ *
+ * Read by the dashboard so the ceiling is visible before anybody hits it: an
+ * upload that is refused without warning reads as a broken tool rather than a
+ * full bucket.
+ */
+export type StorageUsage = { usedBytes: number; quotaBytes: number; objects: number };
+
+export async function fetchUsage(): Promise<StorageUsage | null> {
+  if (!isHostingConfigured()) return null;
+  try {
+    const response = await callApi('/usage');
+    if (!response.ok) return null;
+    return (await response.json()) as StorageUsage;
+  } catch {
+    return null;
+  }
 }
 
 /** Who we are, according to Cloudflare Access. Null when hosting is off. */

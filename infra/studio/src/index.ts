@@ -1,5 +1,5 @@
 import { authenticate, type AuthEnv } from './auth.ts';
-import { handleSign, handleExists, type SignEnv } from './sign.ts';
+import { handleSign, handleExists, handleUsage, type SignEnv } from './sign.ts';
 import { handleProjects, type ProjectsEnv } from './projects.ts';
 
 type Env = AuthEnv &
@@ -44,6 +44,11 @@ export default {
       if (request.method === 'GET') return handleExists(request, env);
       if (request.method === 'POST') return handleSign(request, env);
       return json(405, { error: 'Method not allowed' });
+    }
+
+    if (url.pathname === '/api/usage') {
+      if (request.method !== 'GET') return json(405, { error: 'Method not allowed' });
+      return handleUsage(env);
     }
 
     if (url.pathname === '/api/me') {

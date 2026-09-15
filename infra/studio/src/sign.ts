@@ -6,8 +6,9 @@ import {
   MAX_UPLOAD_BYTES,
   IMMUTABLE_CACHE_CONTROL,
 } from '../../shared/asset-key.ts';
+import { bucketUsage, quotaBytes, reserve, type QuotaEnv } from './quota.ts';
 
-export type SignEnv = {
+export type SignEnv = QuotaEnv & {
   ASSETS: R2Bucket;
   R2_ACCOUNT_ID: string;
   R2_BUCKET: string;
@@ -25,6 +26,32 @@ function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8' },
+  });
+}
+
+/**
+ * German byte count for an error the user reads. Switches to GB only once the
+ * number is actually gigabytes, so a nearly empty bucket does not report
+ * itself as "0,0 von 0,0 GB".
+ */
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1).replace('.', ',')} GB`;
+  return `${(bytes / 1024 ** 2).toFixed(1).replace('.', ',')} MB`;
+}
+
+/**
+ * `GET /api/usage` — how full the bucket is, and how full it is allowed to get.
+ *
+ * Exists so the dashboard can show the budget before someone runs into it. A
+ * limit nobody can see is indistinguishable from a broken upload.
+ */
+export async function handleUsage(env: SignEnv): Promise<Response> {
+  const usage = await bucketUsage(env);
+  return json(200, {
+    usedBytes: usage.bytes,
+    quotaBytes: quotaBytes(env),
+    objects: usage.objects,
+    measuredAt: usage.measuredAt,
   });
 }
 
@@ -96,6 +123,27 @@ export async function handleSign(request: Request, env: SignEnv): Promise<Respon
     });
   }
 
+  // The budget check. Deliberately the last gate before a signature is issued,
+  // because a signature is the only thing standing between a browser and a
+  // write into a metered bucket.
+  //
+  // The cached figure decides the common case for free. Only a request that
+  // the cache says would not fit pays for a fresh measurement, which is what
+  // keeps a stale count from refusing an upload that a cleanup has just made
+  // room for.
+  const limit = quotaBytes(env);
+  let usage = await bucketUsage(env);
+  if (usage.bytes + size > limit) {
+    usage = await bucketUsage(env, { force: true });
+    if (usage.bytes + size > limit) {
+      return json(507, {
+        error: `Der Team-Speicher ist voll: ${formatBytes(usage.bytes)} von ${formatBytes(limit)} belegt, diese Datei braucht ${formatBytes(size)}. Optimiere das Modell oder gib Speicher frei.`,
+        usedBytes: usage.bytes,
+        quotaBytes: limit,
+      });
+    }
+  }
+
   const headers = {
     'content-type': contentType,
     'content-length': String(size),
@@ -127,6 +175,12 @@ export async function handleSign(request: Request, env: SignEnv): Promise<Respon
     allHeaders: true,
   });
   const signed = await signer.sign();
+
+  // Booked against the budget now, not when the upload finishes: the PUT never
+  // passes through this Worker, so this is the last moment we know about it.
+  // The booking outlives exactly this signature, because that is how long the
+  // bytes it authorises can still arrive.
+  reserve(size, SIGNATURE_TTL_SECONDS * 1000);
 
   // The client must replay these headers verbatim — they are covered by the
   // signature, so any deviation makes R2 reject the PUT.

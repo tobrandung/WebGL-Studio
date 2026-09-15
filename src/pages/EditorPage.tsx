@@ -21,6 +21,8 @@ import { isHostingConfigured } from '@/lib/storage/config';
 import { ApiError } from '@/lib/storage/api';
 import { pushProject, fetchRemoteProject, toDocument } from '@/lib/sync/projects';
 import { useModels } from '@/hooks/useModels';
+import { useAssetPublisher } from '@/hooks/useAssetPublisher';
+import type { PublishResult } from '@/lib/sync/assets';
 import { useHistory, stateCommand, type Command } from '@/hooks/useHistory';
 import {
   createViewport,
@@ -65,6 +67,7 @@ import {
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
 import { GLASS_SURFACE } from '@/components/ui/glass-dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -180,6 +183,8 @@ export function EditorPage() {
   const [outlinerCollapsed, setOutlinerCollapsed] = useState(false);
   const [visibilityMap, setVisibilityMap] = useState<Record<string, boolean>>({});
   const [showLeaveDialog, setShowLeaveDialog] = useState(false);
+  /** Names of models whose bytes are neither local nor in the CDN. */
+  const [missingModels, setMissingModels] = useState<string[]>([]);
   const [conflictAuthor, setConflictAuthor] = useState<string | null>(null);
   const [resolvingConflict, setResolvingConflict] = useState(false);
   const [groups, setGroups] = useState<SceneGroup[]>([]);
@@ -202,6 +207,7 @@ export function EditorPage() {
   const history = useHistory();
   const {
     models,
+    reload: reloadModels,
     addModel,
     updateModel,
     deleteModel,
@@ -489,22 +495,35 @@ export function EditorPage() {
     if (!viewport || !models.length) return;
     let cancelled = false;
     (async () => {
+      const missing: string[] = [];
       for (const model of models) {
         if (cancelled) return;
         if (viewport.models.has(model.id)) continue;
-        const buffer = await getModelBlob(model.id);
-        if (cancelled) return;
-        if (!buffer) continue;
-        await loadModelFromBuffer(
-          viewport,
-          model.id,
-          buffer,
-          model.fileName,
-          model.position,
-          model.rotation,
-          model.scale,
-        );
+        // One unavailable or malformed model must not cost the rest of the
+        // scene. Before this, a rejected fetch or a GLB the loader choked on
+        // ended the loop and every model after it stayed invisible.
+        try {
+          const buffer = await getModelBlob(model.id);
+          if (cancelled) return;
+          if (!buffer) {
+            missing.push(model.name || model.fileName);
+            continue;
+          }
+          await loadModelFromBuffer(
+            viewport,
+            model.id,
+            buffer,
+            model.fileName,
+            model.position,
+            model.rotation,
+            model.scale,
+          );
+        } catch {
+          if (cancelled) return;
+          missing.push(model.name || model.fileName);
+        }
       }
+      if (!cancelled) setMissingModels(missing);
     })();
     return () => {
       cancelled = true;
@@ -520,6 +539,56 @@ export function EditorPage() {
       performSaveRef.current?.();
     }, 3000);
   }, []);
+
+  /**
+   * Gives a project without a thumbnail one, the first time it is opened with
+   * something in it.
+   *
+   * Thumbnails are captured on save, so anything nobody has edited since the
+   * dashboard started showing them, and anything a colleague only ever looked
+   * at, sat there as a grey placeholder. Marking dirty once is enough: the save
+   * that follows captures the viewport and pushes it with everything else.
+   */
+  const thumbnailRequestedRef = useRef(false);
+  useEffect(() => {
+    if (thumbnailRequestedRef.current) return;
+    if (!viewport || !project || project.thumbnail) return;
+    if (!models.length || missingModels.length) return;
+    // Every model is in the scene, so the capture will show the actual project
+    // rather than an empty grid.
+    if (models.some((model) => !viewport.models.has(model.id))) return;
+    thumbnailRequestedRef.current = true;
+    markDirty();
+  }, [viewport, project, models, missingModels, markDirty]);
+
+  /**
+   * Publish this project's assets as soon as they exist, rather than waiting
+   * for someone to open the export dialog.
+   *
+   * The keys land on the records first; marking dirty is what carries them into
+   * the project document on the next save, which is the version a colleague
+   * downloads. Without that second step the bytes would sit in R2 with nothing
+   * pointing at them.
+   */
+  const handleAssetsPublished = useCallback(
+    (result: PublishResult) => {
+      const publishedModels = Object.keys(result.modelKeys).length;
+      if (!publishedModels && !result.environmentKey) return;
+      if (publishedModels) void reloadModels();
+      if (result.environmentKey) {
+        const key = result.environmentKey;
+        setEnvironment((prev) => (prev ? { ...prev, assetKey: key } : prev));
+      }
+      markDirty();
+    },
+    [reloadModels, markDirty],
+  );
+
+  const {
+    publishing: publishingAssets,
+    failures: publishFailures,
+    quotaExceeded: storageFull,
+  } = useAssetPublisher(id ?? '', models, environment, handleAssetsPublished);
 
   // ---------------------------------------------------------------------------
   // History plumbing
@@ -1895,6 +1964,47 @@ export function EditorPage() {
         onPointerDown={handleCanvasPointerDown}
         onClick={handleModelClick}
       />
+      {/* Sits under the toolbar and clear of both side panels. The wrapper is
+          click-through so it never steals an orbit drag from the viewport. */}
+      {(missingModels.length > 0 || publishFailures.length > 0 || publishingAssets) && (
+        <div className="pointer-events-none absolute left-1/2 top-[61px] z-10 w-[min(560px,calc(100%-32px))] -translate-x-1/2 space-y-2">
+          {missingModels.length > 0 && (
+            <Alert variant="warning" className="pointer-events-auto glass-surface">
+              <AlertDescription>
+                {missingModels.length === 1
+                  ? `„${missingModels[0]}" konnte nicht geladen werden.`
+                  : `${missingModels.length} Modelle konnten nicht geladen werden: ${missingModels.join(', ')}.`}{' '}
+                Die Datei liegt weder hier noch im Team-Speicher. Wer das Projekt angelegt hat,
+                muss es einmal öffnen, damit die Modelle hochgeladen werden.
+              </AlertDescription>
+            </Alert>
+          )}
+          {/* A full bucket is not a warning about this project, it is a failure
+              that stops every upload, so it gets the red variant. */}
+          {publishFailures.length > 0 && (
+            <Alert
+              variant={storageFull ? 'destructive' : 'warning'}
+              className="pointer-events-auto glass-surface"
+            >
+              <AlertDescription>
+                <p className="font-medium">Nicht für das Team veröffentlicht:</p>
+                <ul className="space-y-0.5">
+                  {publishFailures.map((failure) => (
+                    <li key={failure.id}>
+                      „{failure.label}": {failure.reason}
+                    </li>
+                  ))}
+                </ul>
+              </AlertDescription>
+            </Alert>
+          )}
+          {publishingAssets && missingModels.length === 0 && publishFailures.length === 0 && (
+            <Alert className="pointer-events-auto glass-surface">
+              <AlertDescription>Modelle werden für das Team hochgeladen…</AlertDescription>
+            </Alert>
+          )}
+        </div>
+      )}
       {(selectedKind === 'world' ||
         (selectedKind === 'light' && selectedId) ||
         (selectedKind === 'environment' && environment) ||

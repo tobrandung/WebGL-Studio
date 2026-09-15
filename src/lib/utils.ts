@@ -27,5 +27,10 @@ export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return '–';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024).toLocaleString('de-DE')} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 2 : 1).replace('.', ',')} MB`;
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 2 : 1).replace('.', ',')} MB`;
+  }
+  // Only the team storage gets this far: models and HDRIs are refused long
+  // before a gigabyte. Without it the quota reads as „9216,0 MB".
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1).replace('.', ',')} GB`;
 }

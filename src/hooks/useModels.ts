@@ -121,5 +121,15 @@ export function useModels(projectId: string) {
     [load],
   );
 
-  return { models, loading, addModel, updateModel, deleteModel, restoreModel, getModelBlob, reorderModels };
+  return {
+    models,
+    loading,
+    reload: load,
+    addModel,
+    updateModel,
+    deleteModel,
+    restoreModel,
+    getModelBlob,
+    reorderModels,
+  };
 }

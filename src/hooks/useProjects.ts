@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getDB, generateId, type Project, type ProjectSettings, type CameraPath } from '@/lib/db';
 import { isHostingConfigured } from '@/lib/storage/config';
-import { deleteRemoteProject } from '@/lib/sync/projects';
+import { deleteRemoteProject, type DeleteResult } from '@/lib/sync/projects';
 
 const DEFAULT_SETTINGS: ProjectSettings = {
   // Kein reines Grau, und das ist Absicht: das Eigenschaften-Panel leitet die
@@ -65,18 +65,20 @@ export function useProjects() {
   );
 
   /**
-   * Deletes the project locally and in R2.
+   * Deletes the project everywhere: locally, in the team storage, and with it
+   * every published model and HDRI that no other project uses.
    *
-   * Both, because a local-only delete would leave the project showing up again
-   * under "Im Team-Speicher". And because the remote copy is the shared one,
-   * this is destructive for colleagues too. The dashboard therefore asks first.
+   * Everywhere, because half a deletion is not one. A local-only delete leaves
+   * the project to come back with the next team sync, and leaving its assets in
+   * R2 means the bucket only ever grows, which under a storage ceiling ends
+   * with nobody able to upload anything and no way to make room. It is also
+   * destructive past this studio, an embed on a customer site loads exactly
+   * these keys, which is why the dashboard makes you type the word first.
    *
-   * Published assets are deliberately left in R2: they are content-addressed,
-   * may be shared with another project, and may still be serving an embed on a
-   * live customer site.
+   * Returns what the server removed, or null when there was no remote copy.
    */
   const deleteProject = useCallback(
-    async (id: string) => {
+    async (id: string): Promise<DeleteResult | null> => {
       const db = await getDB();
       const models = await db.getAllFromIndex('models', 'by-project', id);
       const tx = db.transaction(['projects', 'models', 'blobs'], 'readwrite');
@@ -87,12 +89,14 @@ export function useProjects() {
       }
       await tx.done;
 
+      let result: DeleteResult | null = null;
       if (isHostingConfigured()) {
         // A failed remote delete is not worth failing the local one over; the
         // project simply reappears as a team entry until the next attempt.
-        await deleteRemoteProject(id).catch(() => {});
+        result = await deleteRemoteProject(id).catch(() => null);
       }
       await load();
+      return result;
     },
     [load],
   );
@@ -130,5 +134,13 @@ export function useProjects() {
     [load],
   );
 
-  return { projects, loading, createProject, updateProject, deleteProject, duplicateProject };
+  return {
+    projects,
+    loading,
+    reload: load,
+    createProject,
+    updateProject,
+    deleteProject,
+    duplicateProject,
+  };
 }

@@ -14,7 +14,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
-import { Notice } from '@/components/ui/notice';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { InfoHint } from '@/components/ui/info-hint';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -299,13 +299,15 @@ export function EnvironmentUploadDialog({
                 </div>
 
                 {sizeWarning && (
-                  <Notice variant="warning">
-                    <strong>Diese Umgebung ist mit {formatBytes(probe.bytes)} zu groß fürs Web.</strong>{' '}
-                    Das HDRI wird beim Export mitgeliefert und von jedem Besucher deiner Seite
-                    geladen, es zählt also voll ins Seitengewicht. Über 20 MiB liefert das CDN (jsDelivr) die
-                    Datei gar nicht mehr aus (HTTP 403). Empfehlung: hier direkt umrechnen. Für
-                    Spiegelungen bleibt die Qualität praktisch identisch.
-                  </Notice>
+                  <Alert variant="warning">
+                    <AlertDescription>
+                      <strong>Diese Umgebung ist mit {formatBytes(probe.bytes)} zu groß fürs Web.</strong>{' '}
+                      Das HDRI wird beim Export mitgeliefert und von jedem Besucher deiner Seite
+                      geladen, es zählt also voll ins Seitengewicht. Über 20 MiB liefert das CDN (jsDelivr) die
+                      Datei gar nicht mehr aus (HTTP 403). Empfehlung: hier direkt umrechnen. Für
+                      Spiegelungen bleibt die Qualität praktisch identisch.
+                    </AlertDescription>
+                  </Alert>
                 )}
 
                 {sizeHint && (
@@ -316,18 +318,20 @@ export function EnvironmentUploadDialog({
                 )}
 
                 {resolutionWarning && (
-                  <Notice variant="warning">
-                    <strong>
-                      {probe.width} × {probe.height} ist für ein Web-Widget zu hoch aufgelöst.
-                    </strong>{' '}
-                    Die Auflösung ist unabhängig von der Dateigröße ein Problem: entpackt belegt das
-                    Bild rund {formatBytes(textureBytes(probe.width, probe.height))} Grafikspeicher,
-                    und viele mobile GPUs verarbeiten maximal 4096 px. Dort bleibt die Umgebung dann
-                    schwarz. Für Spiegelungen rechnet three.js ohnehin auf eine 256-px-Cubemap
-                    herunter; mehr als 1024 × 512 bringt dort keinen sichtbaren Gewinn.
-                    {probe.width > RESOLUTION_SEVERE &&
-                      ' Über 8192 px kann schon das Dekodieren im Browser den Tab zum Absturz bringen.'}
-                  </Notice>
+                  <Alert variant="warning">
+                    <AlertDescription>
+                      <strong>
+                        {probe.width} × {probe.height} ist für ein Web-Widget zu hoch aufgelöst.
+                      </strong>{' '}
+                      Die Auflösung ist unabhängig von der Dateigröße ein Problem: entpackt belegt das
+                      Bild rund {formatBytes(textureBytes(probe.width, probe.height))} Grafikspeicher,
+                      und viele mobile GPUs verarbeiten maximal 4096 px. Dort bleibt die Umgebung dann
+                      schwarz. Für Spiegelungen rechnet three.js ohnehin auf eine 256-px-Cubemap
+                      herunter; mehr als 1024 × 512 bringt dort keinen sichtbaren Gewinn.
+                      {probe.width > RESOLUTION_SEVERE &&
+                        ' Über 8192 px kann schon das Dekodieren im Browser den Tab zum Absturz bringen.'}
+                    </AlertDescription>
+                  </Alert>
                 )}
 
                 {probe?.note && (
@@ -450,13 +454,21 @@ export function EnvironmentUploadDialog({
                   </div>
                 )}
 
-                {converter.error && <Notice variant="warning">{converter.error}</Notice>}
+                {converter.error && (
+                  <Alert variant="warning">
+                    <AlertDescription>{converter.error}</AlertDescription>
+                  </Alert>
+                )}
               </>
             )}
           </TabsContent>
         </Tabs>
 
-        {commitError && <Notice variant="error">{commitError}</Notice>}
+        {commitError && (
+          <Alert variant="destructive">
+            <AlertDescription>{commitError}</AlertDescription>
+          </Alert>
+        )}
         </GlassDialogBody>
 
         <GlassDialogFooter className="flex-wrap gap-2">

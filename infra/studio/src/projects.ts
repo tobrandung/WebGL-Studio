@@ -1,4 +1,5 @@
 import type { Identity } from './auth.ts';
+import { invalidateUsage } from './quota.ts';
 
 export type ProjectsEnv = { ASSETS: R2Bucket };
 
@@ -165,10 +166,123 @@ async function putProject(
   return json(200, { etag: written.httpEtag, author: identity.name, updatedAt: Date.now() });
 }
 
+/** Content-addressed asset, e.g. `a/1a2b3c4d5e6f7a8b.glb`. Nothing else. */
+const ASSET_KEY = /^a\/[0-9a-f]{16}\.[a-z0-9]+$/;
+
+/**
+ * The asset keys one project document points at.
+ *
+ * Deliberately narrow: only the two places the editor writes a key, and only
+ * values that look like one. A document is client-written JSON, and this list
+ * decides what gets deleted, so a malformed or hostile field must not be able
+ * to name `p/…` or `w/…`.
+ */
+function collectAssetKeys(document: unknown): string[] {
+  const doc = document as {
+    project?: { environment?: { assetKey?: unknown } | null };
+    models?: Array<{ assetKey?: unknown } | null>;
+  };
+  const keys: string[] = [];
+
+  const environment = doc?.project?.environment?.assetKey;
+  if (typeof environment === 'string' && ASSET_KEY.test(environment)) keys.push(environment);
+
+  for (const model of doc?.models ?? []) {
+    const key = model?.assetKey;
+    if (typeof key === 'string' && ASSET_KEY.test(key)) keys.push(key);
+  }
+  return keys;
+}
+
+/**
+ * Every asset key that is still spoken for, read from the surviving project
+ * documents.
+ *
+ * Assets are content-addressed, so the same bytes are one object no matter how
+ * many projects use them: duplicating a project, or two people uploading the
+ * same GLB, produces shared references. Deleting on the deleted project's word
+ * alone would therefore empty a scene somebody else still has open.
+ *
+ * `complete` is false when a document could not be read. The caller then keeps
+ * every asset, because a partial reference list is indistinguishable from an
+ * asset nobody uses.
+ *
+ * Costs one read per project. That is a subrequest each, which is why this runs
+ * on delete and nowhere else.
+ */
+async function referencedAssets(env: ProjectsEnv): Promise<{ keys: Set<string>; complete: boolean }> {
+  const keys = new Set<string>();
+  let complete = true;
+  let cursor: string | undefined;
+
+  do {
+    const page = await env.ASSETS.list({ prefix: PREFIX, cursor });
+    for (const entry of page.objects) {
+      const object = await env.ASSETS.get(entry.key);
+      // Vanished between list and get: then it references nothing any more.
+      if (!object) continue;
+      try {
+        for (const key of collectAssetKeys(await object.json())) keys.add(key);
+      } catch {
+        complete = false;
+      }
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+
+  return { keys, complete };
+}
+
+/**
+ * Deletes the project and the assets that only it used.
+ *
+ * This is the only lever against a bucket that otherwise just grows: with a
+ * quota in place, assets that outlive their project are space nobody can ever
+ * reclaim. It is destructive beyond this studio, an embed on a customer site
+ * loads its model from these keys and will break, which is why the dashboard
+ * makes you type the word first.
+ */
 async function deleteProject(env: ProjectsEnv, id: string): Promise<Response> {
-  // Assets are intentionally left behind: they are content-addressed and may be
-  // shared with another project or with an embed that is still live on a
-  // customer site. Orphan cleanup is a separate, deliberate job.
-  await env.ASSETS.delete(`${PREFIX}${id}.json`);
-  return new Response(null, { status: 204 });
+  const key = `${PREFIX}${id}.json`;
+  const object = await env.ASSETS.get(key);
+  if (!object) return json(200, { deletedAssets: 0, keptAssets: 0, freedBytes: 0 });
+
+  const documentBytes = object.size;
+  let own: string[] = [];
+  try {
+    own = collectAssetKeys(await object.json());
+  } catch {
+    // An unreadable document names no assets we can act on. Delete the document
+    // itself anyway, otherwise the project is undeletable.
+    own = [];
+  }
+
+  await env.ASSETS.delete(key);
+  const unique = [...new Set(own)];
+
+  // Read the survivors after the delete, so the project being removed cannot
+  // count as a reference to its own assets.
+  const { keys: stillUsed, complete } = unique.length > 0
+    ? await referencedAssets(env)
+    : { keys: new Set<string>(), complete: true };
+
+  const orphans = complete ? unique.filter((k) => !stillUsed.has(k)) : [];
+
+  let freedBytes = documentBytes;
+  for (const orphan of orphans) {
+    const head = await env.ASSETS.head(orphan);
+    if (head) freedBytes += head.size;
+  }
+  if (orphans.length > 0) await env.ASSETS.delete(orphans);
+
+  // The measurement behind the storage meter is now wrong in the one direction
+  // people notice: it would keep reporting space that was just freed.
+  invalidateUsage();
+
+  return json(200, {
+    deletedAssets: orphans.length,
+    keptAssets: unique.length - orphans.length,
+    freedBytes,
+    ...(complete ? {} : { incomplete: true }),
+  });
 }

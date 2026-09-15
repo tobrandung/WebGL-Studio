@@ -130,3 +130,20 @@ export function slugifyName(value: string): string {
       .replace(/^-+|-+$/g, '') || 'hdri'
   );
 }
+
+/**
+ * Content type an environment blob is stored and served under. Derived from the
+ * format rather than the file name for the same reason `extensionForFormat` is:
+ * an Ultra HDR file is a `.jpg` whose decoder cannot be guessed from its
+ * extension.
+ *
+ * Note that `hdr` and `exr` are deliberately outside ALLOWED_CONTENT_TYPES: the
+ * raw formats are megabytes per file and have no place on a web page, so they
+ * are converted before publishing and the uploader rejects them by type.
+ */
+export const ENVIRONMENT_CONTENT_TYPE: Record<EnvironmentFormat, string> = {
+  hdr: 'image/vnd.radiance',
+  exr: 'image/x-exr',
+  ultrahdr: 'image/jpeg',
+  sdr: 'image/webp',
+};

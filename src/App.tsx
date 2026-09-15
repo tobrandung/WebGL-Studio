@@ -1,6 +1,7 @@
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { Toaster } from '@/components/ui/toast';
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const EditorPage = lazy(() => import('./pages/EditorPage'));
@@ -24,6 +25,9 @@ export function App() {
           </Routes>
         </Suspense>
       </HashRouter>
+      {/* One viewport for the whole app: every temporary message goes through
+          `toast`, wherever it is raised. */}
+      <Toaster />
     </TooltipProvider>
   );
 }

@@ -42,7 +42,11 @@ import {
   type PlaybackMode,
 } from '@/lib/db';
 import type { EnvironmentFormat } from '@/lib/hdri/types';
-import { ENVIRONMENT_FORMAT_LABEL, extensionForFormat } from '@/lib/hdri/format';
+import {
+  ENVIRONMENT_CONTENT_TYPE,
+  ENVIRONMENT_FORMAT_LABEL,
+  extensionForFormat,
+} from '@/lib/hdri/format';
 import { uploadAsset, lookupAsset } from '@/lib/storage/client';
 import { ApiError } from '@/lib/storage/api';
 import { isHostingConfigured } from '@/lib/storage/config';
@@ -50,7 +54,7 @@ import { MAX_UPLOAD_BYTES } from '@/lib/storage/asset-key';
 import { widgetScriptUrl, widgetRelease } from '@/lib/storage/widget-release';
 import { cn, slugify, formatBytes } from '@/lib/utils';
 import { InfoHint } from '@/components/ui/info-hint';
-import { Notice } from '@/components/ui/notice';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 type ExportMode = PlaybackMode;
 type ExportTab = 'display' | 'hosting' | 'embed';
@@ -88,18 +92,6 @@ const RESOLUTION_PRESETS: ResolutionPreset[] = [
 ];
 
 const DEFAULT_RESOLUTION_ID = 'fhd';
-
-/**
- * Content type per environment format. Derived from the format rather than the
- * stored file name for the same reason `envFileName` is: an Ultra HDR file is a
- * `.jpg` whose decoder cannot be guessed from the extension alone.
- */
-const ENV_CONTENT_TYPE: Record<EnvironmentFormat, string> = {
-  hdr: 'image/vnd.radiance',
-  exr: 'image/x-exr',
-  ultrahdr: 'image/jpeg',
-  sdr: 'image/webp',
-};
 
 /** One row of the upload log, so the UI can style outcomes rather than parse text. */
 type UploadRow = {
@@ -629,7 +621,7 @@ export function ExportDialog({
         targets.push({
           id: environment.blobId,
           label: envFileName,
-          contentType: ENV_CONTENT_TYPE[envFormat],
+          contentType: ENVIRONMENT_CONTENT_TYPE[envFormat],
           // extensionForFormat includes the dot; the key grammar does not.
           extension: extensionForFormat(envFormat).slice(1),
           persist: async (key) => {
@@ -710,10 +702,12 @@ export function ExportDialog({
         </GlassDialogHeader>
 
         {!hasEnoughKeyframes && (
-          <Notice variant="warning" className="mx-6 mt-4 shrink-0">
-            Dieses Projekt hat weniger als 2 Keyframes. Ohne Kamerafahrt bewegt sich die Kamera
-            nicht. Erstelle zuerst im Keyframe-Editor mindestens 2 Keyframes.
-          </Notice>
+          <Alert variant="warning" className="mx-6 mt-4 shrink-0">
+            <AlertDescription>
+              Dieses Projekt hat weniger als 2 Keyframes. Ohne Kamerafahrt bewegt sich die Kamera
+              nicht. Erstelle zuerst im Keyframe-Editor mindestens 2 Keyframes.
+            </AlertDescription>
+          </Alert>
         )}
 
         <Tabs
@@ -865,10 +859,12 @@ export function ExportDialog({
             {activeTab === 'hosting' && (
             <div className="space-y-6">
               {!hostingOn ? (
-                <Notice variant="warning">
-                  Hosting ist in diesem Build deaktiviert (<code>VITE_ASSET_HOSTING=off</code>).
-                  Lade die Dateien unten herunter und binde sie von deinem eigenen Speicher ein.
-                </Notice>
+                <Alert variant="warning">
+                  <AlertDescription>
+                    Hosting ist in diesem Build deaktiviert (<code>VITE_ASSET_HOSTING=off</code>).
+                    Lade die Dateien unten herunter und binde sie von deinem eigenen Speicher ein.
+                  </AlertDescription>
+                </Alert>
               ) : (
                 <div className="space-y-2">
                   <div className="flex items-center gap-1.5">
@@ -882,14 +878,16 @@ export function ExportDialog({
                   </div>
 
                   {oversized.length > 0 && (
-                    <Notice variant="error">
-                      {oversized.length === 1
-                        ? `„${oversized[0]}" ist größer als ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`
-                        : `${oversized.length} Dateien sind größer als ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`}{' '}
-                      und können nicht veröffentlicht werden. Im Szenenbaum über das Menü des
-                      Modells „Optimieren“ ausführen. WebP-Texturen und Draco-Geometrie bringen
-                      ein solches Modell in der Regel deutlich darunter.
-                    </Notice>
+                    <Alert variant="destructive">
+                      <AlertDescription>
+                        {oversized.length === 1
+                          ? `„${oversized[0]}" ist größer als ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`
+                          : `${oversized.length} Dateien sind größer als ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`}{' '}
+                        und können nicht veröffentlicht werden. Im Szenenbaum über das Menü des
+                        Modells „Optimieren“ ausführen. WebP-Texturen und Draco-Geometrie bringen
+                        ein solches Modell in der Regel deutlich darunter.
+                      </AlertDescription>
+                    </Alert>
                   )}
 
                   <Button
@@ -950,7 +948,11 @@ export function ExportDialog({
                     </div>
                   )}
 
-                  {uploadError && <Notice variant="error">{uploadError}</Notice>}
+                  {uploadError && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{uploadError}</AlertDescription>
+                    </Alert>
+                  )}
 
                   {embedReady && !uploading && (
                     <p className="text-xs text-green-400">
@@ -958,11 +960,13 @@ export function ExportDialog({
                     </p>
                   )}
                   {!scriptUrl && (
-                    <Notice variant="warning">
-                      Das Widget-Bundle ist noch nicht veröffentlicht. Einmal{' '}
-                      <code>npm run publish:widget</code> ausführen. Danach steht seine URL fest
-                      und ältere Embeds bleiben auf ihrer Version.
-                    </Notice>
+                    <Alert variant="warning">
+                      <AlertDescription>
+                        Das Widget-Bundle ist noch nicht veröffentlicht. Einmal{' '}
+                        <code>npm run publish:widget</code> ausführen. Danach steht seine URL fest
+                        und ältere Embeds bleiben auf ihrer Version.
+                      </AlertDescription>
+                    </Alert>
                   )}
                 </div>
               )}
@@ -1053,12 +1057,14 @@ export function ExportDialog({
                       </Button>
                     </div>
                     {envFormat === 'ultrahdr' && (
-                      <Notice variant="warning">
-                        <strong>Diese Umgebung ist ein Ultra HDR JPEG.</strong> Nur ein Widget-Build
-                        ab Version {widgetRelease().version ?? '–'} liest sie mit vollem
-                        HDR-Bereich. Bereits eingebettete, ältere Widgets zeigen weiterhin die
-                        flachere SDR-Basis. Sie sind auf ihre Bundle-Version gepinnt.
-                      </Notice>
+                      <Alert variant="warning">
+                        <AlertDescription>
+                          <strong>Diese Umgebung ist ein Ultra HDR JPEG.</strong> Nur ein Widget-Build
+                          ab Version {widgetRelease().version ?? '–'} liest sie mit vollem
+                          HDR-Bereich. Bereits eingebettete, ältere Widgets zeigen weiterhin die
+                          flachere SDR-Basis. Sie sind auf ihre Bundle-Version gepinnt.
+                        </AlertDescription>
+                      </Alert>
                     )}
                     {supportsFsAccess && (
                       <Button variant="outline" size="sm" className="w-full" onClick={saveEnvToFolder}>
@@ -1077,16 +1083,18 @@ export function ExportDialog({
             {activeTab === 'embed' && (
             <div className="space-y-3">
               {!embedReady && (
-                <Notice variant="warning">
-                  {models.length === 0
-                    ? 'Dieses Projekt hat kein Modell. Es gibt nichts einzubetten.'
-                    : !scriptUrl
-                      ? 'Das Widget-Bundle ist noch nicht veröffentlicht. Einmal npm run publish:widget ausführen.'
-                      : `Noch nicht veröffentlicht: ${[
-                          ...pendingModels.map((m) => m.name),
-                          ...(envPending ? ['HDRI / Umgebung'] : []),
-                        ].join(', ')}. Im Tab „Hosting" veröffentlichen. Erst dann enthält das Snippet echte URLs.`}
-                </Notice>
+                <Alert variant="warning">
+                  <AlertDescription>
+                    {models.length === 0
+                      ? 'Dieses Projekt hat kein Modell. Es gibt nichts einzubetten.'
+                      : !scriptUrl
+                        ? 'Das Widget-Bundle ist noch nicht veröffentlicht. Einmal npm run publish:widget ausführen.'
+                        : `Noch nicht veröffentlicht: ${[
+                            ...pendingModels.map((m) => m.name),
+                            ...(envPending ? ['HDRI / Umgebung'] : []),
+                          ].join(', ')}. Im Tab „Hosting" veröffentlichen. Erst dann enthält das Snippet echte URLs.`}
+                  </AlertDescription>
+                </Alert>
               )}
               <Button className="w-full" disabled={!embedReady} onClick={handleCopy}>
                 {copied ? (

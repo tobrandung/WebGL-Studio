@@ -22,6 +22,11 @@ bucket_name = "web3d-assets"
 
 [vars]
 R2_BUCKET = "web3d-assets"
+# Hard ceiling for the whole bucket, in bytes. Below R2's free 10 GB on purpose:
+# uploads are refused before the allowance runs out, so the studio cannot
+# produce a bill by itself. Raising it is a deliberate decision about money:
+# 0.015 USD per GB and month applies beyond the free tier.
+STORAGE_QUOTA_BYTES = "9663676416"
 # Filled in after `wrangler deploy` of infra/cdn — the public delivery origin.
 CDN_BASE = "https://web3d-cdn.brandung-3d.workers.dev"
 # From Zero Trust → Access → Applications → your app → Application Audience tag,

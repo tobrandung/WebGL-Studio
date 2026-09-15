@@ -19,10 +19,12 @@ const ZONE_STYLE: Record<BudgetZone, string> = {
 
 const ZONE_ORDER: BudgetZone[] = ['good', 'ok', 'large', 'over-cdn'];
 
-const TICKS: Array<{ bytes: number; label: string; strong?: boolean }> = [
+const TICKS: Array<{ bytes: number; label: string; strong?: boolean; title?: string }> = [
   { bytes: BUDGET_GOOD, label: '1 MB' },
   { bytes: BUDGET_OK, label: '3 MB' },
-  { bytes: CDN_LIMIT, label: '20 MiB (CDN-Limit)', strong: true },
+  // Nur die Zahl am Balken, damit die Skala lesbar bleibt. Warum ausgerechnet
+  // hier Schluss ist, steht im Tooltip.
+  { bytes: CDN_LIMIT, label: '20 MB', strong: true, title: 'Das CDN lehnt größere Dateien ab.' },
 ];
 
 /**
@@ -76,7 +78,12 @@ export function SizeBudgetBar({
             className="absolute top-0 -translate-x-1/2 text-[10px] whitespace-nowrap"
             style={{ left: `${budgetPosition(tick.bytes) * 100}%` }}
           >
-            <span className={tick.strong ? 'text-red-400' : 'text-muted-foreground'}>{tick.label}</span>
+            <span
+              className={tick.strong ? 'text-red-400' : 'text-muted-foreground'}
+              title={tick.title}
+            >
+              {tick.label}
+            </span>
           </div>
         ))}
 

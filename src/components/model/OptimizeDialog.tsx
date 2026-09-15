@@ -12,7 +12,7 @@ import {
   GlassDialogHeader,
 } from '@/components/ui/glass-dialog';
 import { Label } from '@/components/ui/label';
-import { Notice } from '@/components/ui/notice';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
@@ -334,17 +334,23 @@ export function OptimizeDialog({
 
           {notes.length > 0 && (
             <DialogReveal>
-              <Notice variant="warning">
-                <ul className="space-y-0.5">
-                  {notes.map((note, index) => (
-                    <li key={`${index}-${note}`}>{note}</li>
-                  ))}
-                </ul>
-              </Notice>
+              <Alert variant="warning">
+                <AlertDescription>
+                  <ul className="space-y-0.5">
+                    {notes.map((note, index) => (
+                      <li key={`${index}-${note}`}>{note}</li>
+                    ))}
+                  </ul>
+                </AlertDescription>
+              </Alert>
             </DialogReveal>
           )}
 
-          {error && <Notice variant="error">{error}</Notice>}
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
         </GlassDialogBody>
 
         <GlassDialogFooter>

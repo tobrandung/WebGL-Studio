@@ -25,6 +25,12 @@ type ProjectCardProps = {
    */
   synced?: boolean;
   /**
+   * Who last saved this project, when that was not the person looking at it.
+   * Left undefined for your own work, because a name on every card would say
+   * nothing; on a colleague's it is the whole point of a shared dashboard.
+   */
+  author?: string;
+  /**
    * Seconds to hold back this card's entrance, so a row fans out left to right.
    * The dashboard derives it from the card's column, not its index in the list.
    */
@@ -57,6 +63,7 @@ const itemVariants = {
 export function ProjectCard({
   project,
   synced,
+  author,
   delay = 0,
   onRename,
   onDuplicate,
@@ -127,6 +134,18 @@ export function ProjectCard({
           >
             {formattedDate}
           </motion.span>
+
+          {author && (
+            <motion.span
+              initial={reduceMotion ? false : { opacity: 0, scale: 0.6 }}
+              animate={isInView ? { opacity: 1, scale: 1 } : {}}
+              transition={{ type: 'spring', stiffness: 260, damping: 16, delay: stagger + 0.3 }}
+              className="absolute bottom-4 left-4 max-w-[calc(100%-32px)] truncate rounded-lg bg-card/90 px-2 py-1 text-xs text-muted-foreground ring-1 ring-inset ring-border backdrop-blur-sm"
+              title={`Zuletzt gespeichert von ${author}`}
+            >
+              {author}
+            </motion.span>
+          )}
 
           {synced === false && (
             <motion.div

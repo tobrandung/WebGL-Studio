@@ -12,7 +12,10 @@ export class ApiError extends Error {
       | 'conflict'
       | 'rejected'
       | 'network'
-      | 'not-configured',
+      | 'not-configured'
+      /** The team storage budget is used up. Distinct from `too-large`:
+       *  the file is fine, there is just no room for it. */
+      | 'quota-exceeded',
     message: string,
   ) {
     super(message);

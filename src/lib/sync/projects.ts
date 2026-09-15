@@ -94,10 +94,39 @@ export async function pushProject(
   return (await response.json()) as PushResult;
 }
 
-export async function deleteRemoteProject(id: string): Promise<void> {
+/**
+ * What the server removed along with the project.
+ *
+ * `keptAssets` are files another project still points at: assets are
+ * content-addressed, so a duplicate or a model two people uploaded separately
+ * is one object with several owners.
+ */
+export type DeleteResult = {
+  deletedAssets: number;
+  keptAssets: number;
+  freedBytes: number;
+  /** A project document could not be read, so no asset was touched. */
+  incomplete?: boolean;
+};
+
+/**
+ * Deletes the project and, with it, every model and HDRI no other project uses.
+ *
+ * Irreversible past this studio: an embed on a customer site loads its assets
+ * from exactly these keys. The alternative is worse, though, because with a
+ * storage ceiling in place, assets that outlive their project are space that
+ * can never be reclaimed.
+ */
+export async function deleteRemoteProject(id: string): Promise<DeleteResult | null> {
   const response = await callApi(`/projects/${id}`, { method: 'DELETE' });
-  if (!response.ok && response.status !== 404) {
+  if (response.status === 404) return null;
+  if (!response.ok) {
     throw new ApiError('rejected', await apiErrorMessage(response, 'Löschen fehlgeschlagen.'));
+  }
+  try {
+    return (await response.json()) as DeleteResult;
+  } catch {
+    return null;
   }
 }
 
