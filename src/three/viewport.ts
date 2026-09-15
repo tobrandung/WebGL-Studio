@@ -205,6 +205,37 @@ export function captureThumbnail(ctx: ViewportContext, width = 640, height = 360
   // source. That used to take the whole debounced autosave down with it and
   // silently lose every edit, so bail out and keep the previous thumbnail.
   if (!source.width || !source.height) return '';
+
+  // The card should show the scene, not the workshop around it. Grid, gizmo,
+  // light helpers, path markers and the spline are editor furniture and have
+  // no business on the dashboard, so everything that is neither a model nor a
+  // light is hidden for this one frame. Stated that way round, a helper added
+  // later stays out by default instead of by being remembered here.
+  const keep = new Set<THREE.Object3D>(ctx.models.values());
+  for (const record of ctx.lights.values()) {
+    keep.add(record.light);
+    // Directional and spot lights aim at a target object that lives in the
+    // scene. It draws nothing, but it is not furniture either.
+    const target = (record.light as THREE.SpotLight).target as THREE.Object3D | undefined;
+    if (target) keep.add(target);
+  }
+  const furniture = ctx.scene.children.filter((child) => child.visible && !keep.has(child));
+  for (const child of furniture) child.visible = false;
+
+  try {
+    return renderThumbnail(ctx, source, width, height);
+  } finally {
+    for (const child of furniture) child.visible = true;
+  }
+}
+
+/** The capture itself, once the scene has been stripped to model and light. */
+function renderThumbnail(
+  ctx: ViewportContext,
+  source: HTMLCanvasElement,
+  width: number,
+  height: number,
+): string {
   ctx.renderer.render(ctx.scene, ctx.camera);
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -212,7 +243,7 @@ export function captureThumbnail(ctx: ViewportContext, width = 640, height = 360
   const c2d = canvas.getContext('2d');
   if (!c2d) return '';
   // The viewport canvas is usually far larger than the thumbnail, so this is a
-  // heavy downscale. The cheap filter leaves visible aliasing on the grid.
+  // heavy downscale. The cheap filter leaves visible aliasing on thin edges.
   c2d.imageSmoothingQuality = 'high';
   // Flatten onto a solid backdrop so transparent scenes don't become pure black.
   c2d.fillStyle = '#0f0f11';
