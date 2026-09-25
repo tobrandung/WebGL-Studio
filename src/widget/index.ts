@@ -1,7 +1,5 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import type { WebGPURenderer } from 'three/webgpu';
 import {
   syncLights,
   applyEnvironment,
@@ -9,7 +7,10 @@ import {
   createDefaultLights,
   type LightRecord,
 } from '@/three/lighting';
-import type { LightEntry } from '@/lib/db';
+import { syncPlanes, type PlaneRecord } from '@/three/planes';
+import { fitShadowCameras, freezeShadows, setMeshShadows, visibleBounds } from '@/three/shadows';
+import { createModelLoader, createRenderer, prepareModel } from '@/three/renderer';
+import type { LightEntry, PlaneEntry } from '@/lib/db';
 import type { EnvironmentFormat } from '@/lib/hdri/types';
 
 type Vec3 = [number, number, number];
@@ -51,6 +52,8 @@ type WidgetConfig = {
   modelUrl?: string;
   /** Platzierte Lichtquellen (Fallback: Standard-Studio-Setup). */
   lights?: LightEntry[];
+  /** Schattenfangende Bodenflächen. Fehlt bei älteren Embeds. */
+  planes?: PlaneEntry[];
   /** Optionale equirektanguläre Umgebung für Spiegelung/Hintergrund. */
   environment?: EnvironmentWidgetConfig;
   /**
@@ -60,6 +63,11 @@ type WidgetConfig = {
    * `null`/undefined = unbegrenzt (nur devicePixelRatio-Cap greift).
    */
   maxResolution?: MaxResolution | null;
+  /**
+   * Rendert per WebGL 2 statt WebGPU. Ohne die Option entscheidet der Browser:
+   * WebGPU, wo es verfügbar ist, sonst automatisch WebGL 2.
+   */
+  forceWebGL?: boolean;
 };
 
 /**
@@ -119,72 +127,54 @@ function init(selector: string, config: WidgetConfig) {
   const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
   camera.position.set(3, 2, 5);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: !!config.transparent });
-  renderer.setPixelRatio(computePixelRatio(container, config.maxResolution));
-  renderer.setSize(container.clientWidth, container.clientHeight);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.2;
-  container.appendChild(renderer.domElement);
-
   const lightStore = new Map<string, LightRecord>();
   syncLights(scene, config.lights && config.lights.length ? config.lights : createDefaultLights(), lightStore);
+  const planeStore = new Map<string, PlaneRecord>();
+  syncPlanes(scene, config.planes ?? [], planeStore);
+  const placed: THREE.Group[] = [];
 
-  if (config.environment) {
+  async function loadEnvironment() {
     const env = config.environment;
-    loadEquirectTexture(env.url, env.url, env.format)
-      .then((texture) => {
-        applyEnvironment(scene, renderer, texture, {
-          showBackground: env.showBackground,
-          useForReflection: env.useForReflection,
-          intensity: env.intensity,
-          blurriness: env.blurriness,
-        });
-      })
-      .catch((err) => console.error('[Web3DWidget] Umgebung konnte nicht geladen werden:', env.url, err));
+    if (!env) return;
+    try {
+      const texture = await loadEquirectTexture(env.url, env.url, env.format);
+      applyEnvironment(scene, texture, {
+        showBackground: env.showBackground,
+        useForReflection: env.useForReflection,
+        intensity: env.intensity,
+        blurriness: env.blurriness,
+      });
+    } catch (err) {
+      console.error('[Web3DWidget] Umgebung konnte nicht geladen werden:', env.url, err);
+    }
   }
 
-  const loader = new GLTFLoader();
-  const draco = new DRACOLoader();
-  draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
-  loader.setDRACOLoader(draco);
-  const ktx2 = new KTX2Loader();
-  ktx2.setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/libs/basis/');
-  ktx2.detectSupport(renderer);
-  loader.setKTX2Loader(ktx2);
-
-  const modelList: ModelConfig[] = config.models ?? (config.modelUrl ? [{ url: config.modelUrl }] : []);
-
-  Promise.allSettled(
-    modelList.map(
-      (m) =>
-        new Promise<void>((resolve) => {
-          loader.load(
-            m.url,
-            (gltf) => {
-              const wrapper = new THREE.Group();
-              wrapper.add(gltf.scene);
-              const box = new THREE.Box3().setFromObject(wrapper);
-              const center = box.getCenter(new THREE.Vector3());
-              gltf.scene.position.sub(center);
-              if (m.position) wrapper.position.set(...m.position);
-              if (m.rotation) wrapper.rotation.set(...m.rotation);
-              if (m.scale) wrapper.scale.set(...m.scale);
-              scene.add(wrapper);
-              resolve();
-            },
-            undefined,
-            (err) => {
-              console.error('[Web3DWidget] Modell konnte nicht geladen werden:', m.url, err);
-              resolve();
-            },
-          );
-        }),
-    ),
-  ).then(() => {
-    draco.dispose();
-    ktx2.dispose();
-  });
+  async function loadModels(renderer: WebGPURenderer) {
+    const { loader, dispose } = await createModelLoader(renderer);
+    const modelList: ModelConfig[] = config.models ?? (config.modelUrl ? [{ url: config.modelUrl }] : []);
+    await Promise.all(
+      modelList.map(async (m) => {
+        try {
+          const gltf = await loader.loadAsync(m.url);
+          setMeshShadows(gltf.scene);
+          prepareModel(renderer, gltf.scene);
+          const wrapper = new THREE.Group();
+          wrapper.add(gltf.scene);
+          const box = new THREE.Box3().setFromObject(wrapper);
+          const center = box.getCenter(new THREE.Vector3());
+          gltf.scene.position.sub(center);
+          if (m.position) wrapper.position.set(...m.position);
+          if (m.rotation) wrapper.rotation.set(...m.rotation);
+          if (m.scale) wrapper.scale.set(...m.scale);
+          scene.add(wrapper);
+          placed.push(wrapper);
+        } catch (err) {
+          console.error('[Web3DWidget] Modell konnte nicht geladen werden:', m.url, err);
+        }
+      }),
+    );
+    dispose();
+  }
 
   const { positionSpline, lookAtSpline } = buildSplines(config.keyframes, config.isLoop);
   let progress = 0;
@@ -227,8 +217,7 @@ function init(selector: string, config: WidgetConfig) {
 
   let lastTime = performance.now();
 
-  function animate() {
-    requestAnimationFrame(animate);
+  function animate(renderer: WebGPURenderer) {
     const now = performance.now();
     const dt = (now - lastTime) / 1000;
     lastTime = now;
@@ -250,15 +239,48 @@ function init(selector: string, config: WidgetConfig) {
 
     renderer.render(scene, camera);
   }
-  animate();
 
-  const ro = new ResizeObserver(() => {
-    camera.aspect = container.clientWidth / container.clientHeight;
-    camera.updateProjectionMatrix();
-    renderer.setPixelRatio(computePixelRatio(container, config.maxResolution));
+  // The public `init()` stays synchronous for existing embeds; the renderer
+  // (WebGPU, or WebGL 2 where WebGPU is missing) comes up in the background.
+  void (async () => {
+    let renderer: WebGPURenderer;
+    try {
+      renderer = await createRenderer({
+        alpha: !!config.transparent,
+        pixelRatio: computePixelRatio(container, config.maxResolution),
+        forceWebGL: config.forceWebGL,
+      });
+    } catch (err) {
+      console.error('[Web3DWidget] 3D wird von diesem Browser nicht unterstützt:', err);
+      return;
+    }
     renderer.setSize(container.clientWidth, container.clientHeight);
-  });
-  ro.observe(container);
+    container.appendChild(renderer.domElement);
+
+    const ro = new ResizeObserver(() => {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setPixelRatio(computePixelRatio(container, config.maxResolution));
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+    ro.observe(container);
+
+    await Promise.all([loadEnvironment(), loadModels(renderer)]);
+
+    // The embedded scene is static: fit the shadow cameras once and render
+    // each shadow map once, instead of on every frame.
+    const lights = Array.from(lightStore.values(), (record) => record.light);
+    fitShadowCameras(lights, visibleBounds(placed), visibleBounds(Array.from(planeStore.values(), (record) => record.mesh)));
+    freezeShadows(lights);
+
+    // Build every pipeline before the first frame so the camera move does not
+    // stutter while shaders compile. Before the loop on purpose: compiling
+    // while the loop renders can fail pipeline creation (three.js #34632).
+    applyCamera(progress);
+    await renderer.compileAsync(scene, camera).catch(() => {});
+    lastTime = performance.now();
+    void renderer.setAnimationLoop(() => animate(renderer));
+  })();
 }
 
 (globalThis as Record<string, unknown>).Web3DWidget = { init };

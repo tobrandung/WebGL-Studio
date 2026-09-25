@@ -7,7 +7,7 @@ const DEFAULT_SETTINGS: ProjectSettings = {
   // Kein reines Grau, und das ist Absicht: das Eigenschaften-Panel leitet die
   // aktive Hintergrund-Karte aus der Farbe ab (`isPureGray`), neue Projekte
   // starten damit auf „eigene Farbe" statt auf dem Graustufen-Regler.
-  background: '#1b1818',
+  background: '#313030',
   transparent: false,
 };
 

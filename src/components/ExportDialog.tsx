@@ -440,6 +440,10 @@ export function ExportDialog({
       config.lights = project.lights;
     }
 
+    if (project.planes && project.planes.length) {
+      config.planes = project.planes;
+    }
+
     if (environment && includeEnv) {
       config.environment = {
         url: envUrl,

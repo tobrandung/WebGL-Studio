@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 const SIDES = {
   left: 'data-[state=open]:slide-in-from-left data-[state=closed]:slide-out-to-left',
   right: 'data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right',
+  bottom: 'data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom',
 } as const;
 
 function Sheet({

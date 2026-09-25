@@ -141,11 +141,12 @@ export async function decodeHDR(
     const { EXRLoader } = await import('three/addons/loaders/EXRLoader.js');
     const loader = new EXRLoader().setDataType(type);
     const { value: exr } = withoutHalfFloatWarnings(() => loader.parse(buffer));
-    width = exr.width;
-    height = exr.height;
+    // Optional in the r186 types; validated right after this branch.
+    width = exr.width ?? 0;
+    height = exr.height ?? 0;
     // Channel count varies: a luminance-only EXR comes back as RedFormat.
     components = componentsOf(exr.format);
-    data = exr.data;
+    data = exr.data as Float32Array | Uint16Array;
     flipRowsInPlace(data, width * components, height);
   } else {
     // HDRLoader, not RGBELoader: the latter is a deprecation shim in r180+ that
@@ -153,8 +154,8 @@ export async function decodeHDR(
     const { HDRLoader } = await import('three/addons/loaders/HDRLoader.js');
     const loader = new HDRLoader().setDataType(type);
     const { value: hdr } = withoutHalfFloatWarnings(() => loader.parse(buffer));
-    width = hdr.width;
-    height = hdr.height;
+    width = hdr.width ?? 0;
+    height = hdr.height ?? 0;
     components = 4;
     // Rows are already top-down. The bundled types say `Uint8Array` for the
     // half-float path; the loader actually returns a Uint16Array.

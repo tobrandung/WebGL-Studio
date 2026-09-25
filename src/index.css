@@ -238,3 +238,16 @@
     background-color: oklch(1 0 0 / 35%);
   }
 }
+
+/* Die Seitenpanels enden über der Kamerafahrt-Leiste und wandern mit ihr, im
+   selben Takt wie deren Sheet-Animation (440 ms rein, 300 ms raus, ease-in-out).
+   Höhe und Dauer setzt der Editor als Variablen auf seinem Wurzelelement.
+
+   Bewusst außerhalb jedes Layers: Das Sheet trägt `transition` und
+   `duration-*`-Utilities, und nur ungelayertes CSS schlägt die unabhängig von
+   der Spezifität. Seine eigene Bewegung läuft über Keyframe-Animationen, die
+   ersetzte Transition fehlt ihm also nicht. */
+.timeline-aware {
+  bottom: var(--timeline-offset, 0px);
+  transition: bottom var(--timeline-duration, 300ms) cubic-bezier(0.4, 0, 0.2, 1);
+}

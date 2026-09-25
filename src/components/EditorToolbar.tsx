@@ -11,6 +11,9 @@ import {
   Flashlight,
   Globe,
   Image,
+  Square,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -23,6 +26,7 @@ import {
 } from '@/components/ui/tooltip';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -39,6 +43,15 @@ import type { HistoryState } from '@/hooks/useHistory';
 type EditorToolbarProps = {
   onAddModel: () => void;
   onAddLight: (type: LightType) => void;
+  onAddPlane: () => void;
+  /** What the viewport shows besides the scene itself. */
+  /** `all` is the master switch; the others apply only while it is on. */
+  overlays: { all: boolean; grid: boolean; lightHelpers: boolean; spline: boolean; markers: boolean };
+  onToggleAll: (visible: boolean) => void;
+  onToggleGrid: (visible: boolean) => void;
+  onToggleLightHelpers: (visible: boolean) => void;
+  onToggleSpline: (visible: boolean) => void;
+  onToggleMarkers: (visible: boolean) => void;
   onAddEnvironment: () => void;
   onOpenKeyframeEditor: () => void;
   /** Whether the keyframe bar is showing, so the button reads as a toggle. */
@@ -58,6 +71,13 @@ type EditorToolbarProps = {
 export function EditorToolbar({
   onAddModel,
   onAddLight,
+  onAddPlane,
+  overlays,
+  onToggleAll,
+  onToggleGrid,
+  onToggleLightHelpers,
+  onToggleSpline,
+  onToggleMarkers,
   onAddEnvironment,
   onOpenKeyframeEditor,
   keyframeEditorOpen,
@@ -171,12 +191,78 @@ export function EditorToolbar({
               </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
+          <DropdownMenuItem onClick={onAddPlane}>
+            <Square className="mr-2 h-4 w-4" />
+            Plane
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuLabel className="text-xs text-muted-foreground">Umgebung</DropdownMenuLabel>
           <DropdownMenuItem onClick={onAddEnvironment}>
             <Image className="mr-2 h-4 w-4" />
             HDRI / Umgebung
           </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Toggling keeps the menu open, so several overlays can be set in one go. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm" aria-label="Anzeige im Viewport">
+            <Eye className="mr-1 h-4 w-4" />
+            Anzeigen
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56">
+          {/* An action rather than a checkbox: the label says what a click does. */}
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              onToggleAll(!overlays.all);
+            }}
+          >
+            {overlays.all ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+            {overlays.all ? 'Alle verstecken' : 'Alle zeigen'}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem
+            checked={overlays.grid}
+            disabled={!overlays.all}
+            onCheckedChange={onToggleGrid}
+            onSelect={(e) => e.preventDefault()}
+          >
+            Grid
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={overlays.lightHelpers}
+            disabled={!overlays.all}
+            onCheckedChange={onToggleLightHelpers}
+            onSelect={(e) => e.preventDefault()}
+          >
+            Licht-Helfer
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-xs text-muted-foreground">Kamerafahrt</DropdownMenuLabel>
+          <DropdownMenuCheckboxItem
+            checked={overlays.spline}
+            disabled={!overlays.all}
+            onCheckedChange={onToggleSpline}
+            onSelect={(e) => e.preventDefault()}
+          >
+            Spline
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={overlays.markers}
+            disabled={!overlays.all}
+            onCheckedChange={onToggleMarkers}
+            onSelect={(e) => e.preventDefault()}
+          >
+            Marker
+          </DropdownMenuCheckboxItem>
+          {!keyframeEditorOpen && (
+            <p className="px-2 py-1 text-[11px] text-muted-foreground">
+              Spline und Marker erscheinen, solange die Kamerafahrt offen ist.
+            </p>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

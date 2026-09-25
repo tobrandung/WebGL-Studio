@@ -22,13 +22,11 @@ export type EnvironmentOptions = {
 };
 
 export type EnvironmentState = {
-  /** Prefiltered PMREM texture assigned to `scene.environment`. */
-  envMap: THREE.Texture | null;
-  /** Raw equirect texture assigned to `scene.background`. */
-  backgroundTexture: THREE.Texture | null;
+  /** The equirect texture behind `scene.environment` and/or `scene.background`. */
+  texture: THREE.Texture | null;
 };
 
-export const EMPTY_ENVIRONMENT: EnvironmentState = { envMap: null, backgroundTexture: null };
+export const EMPTY_ENVIRONMENT: EnvironmentState = { texture: null };
 
 /**
  * Default studio lighting seeded for projects without an explicit light setup.
@@ -55,6 +53,7 @@ export function createDefaultLights(): LightEntry[] {
       intensity: 1.2,
       position: [5, 8, 5],
       target: [0, 0, 0],
+      castShadow: true,
       visible: true,
       order: 1,
     },
@@ -66,6 +65,7 @@ export function createDefaultLights(): LightEntry[] {
       intensity: 0.6,
       position: [-3, 4, -2],
       target: [0, 0, 0],
+      castShadow: true,
       visible: true,
       order: 2,
     },
@@ -77,6 +77,7 @@ export function createDefaultLights(): LightEntry[] {
       intensity: 0.5,
       position: [0, 3, -6],
       target: [0, 0, 0],
+      castShadow: true,
       visible: true,
       order: 3,
     },
@@ -96,9 +97,9 @@ export function createLightEntry(type: LightType, order: number): LightEntry {
     case 'ambient':
       return { ...base, name: 'Umgebungslicht', intensity: 0.4, position: [0, 0, 0] };
     case 'directional':
-      return { ...base, name: 'Richtungslicht', intensity: 1, position: [4, 6, 4], target: [0, 0, 0] };
+      return { ...base, name: 'Richtungslicht', intensity: 1, position: [4, 6, 4], target: [0, 0, 0], castShadow: true };
     case 'point':
-      return { ...base, name: 'Punktlicht', intensity: 8, position: [0, 3, 0], distance: 0, decay: 2 };
+      return { ...base, name: 'Punktlicht', intensity: 8, position: [0, 3, 0], distance: 0, decay: 2, castShadow: true };
     case 'spot':
       return {
         ...base,
@@ -110,6 +111,7 @@ export function createLightEntry(type: LightType, order: number): LightEntry {
         decay: 2,
         angle: Math.PI / 6,
         penumbra: 0.3,
+        castShadow: true,
       };
   }
 }
@@ -128,17 +130,29 @@ function createHelper(light: THREE.Light): THREE.Object3D | undefined {
   return undefined;
 }
 
+/** Map size per type: a point light renders six faces, so it gets the least. */
+const SHADOW_MAP_SIZE: Record<Exclude<LightType, 'ambient'>, number> = {
+  directional: 2048,
+  spot: 1024,
+  point: 512,
+};
+
 function createLightObject(entry: LightEntry): THREE.Light {
-  switch (entry.type) {
-    case 'ambient':
-      return new THREE.AmbientLight();
-    case 'directional':
-      return new THREE.DirectionalLight();
-    case 'point':
-      return new THREE.PointLight();
-    case 'spot':
-      return new THREE.SpotLight();
-  }
+  if (entry.type === 'ambient') return new THREE.AmbientLight();
+  const light =
+    entry.type === 'directional'
+      ? new THREE.DirectionalLight()
+      : entry.type === 'point'
+        ? new THREE.PointLight()
+        : new THREE.SpotLight();
+  // Set once here: changing mapSize after the first render needs the shadow
+  // map disposed, and these never change per light.
+  const size = SHADOW_MAP_SIZE[entry.type];
+  light.shadow.mapSize.set(size, size);
+  light.shadow.bias = -0.0001;
+  light.shadow.normalBias = 0.02;
+  light.shadow.radius = 3;
+  return light;
 }
 
 function applyLightProps(record: LightRecord, entry: LightEntry, scene: THREE.Scene) {
@@ -150,6 +164,7 @@ function applyLightProps(record: LightRecord, entry: LightEntry, scene: THREE.Sc
 
   if (!(light instanceof THREE.AmbientLight)) {
     light.position.set(entry.position[0], entry.position[1], entry.position[2]);
+    light.castShadow = entry.castShadow === true;
   }
 
   if (light instanceof THREE.DirectionalLight || light instanceof THREE.SpotLight) {
@@ -278,47 +293,41 @@ export async function loadEquirectTexture(
 }
 
 /**
- * Applies (or clears) an equirect environment texture. Uses a PMREM-prefiltered
- * map for reflections and optionally the raw texture as background. Disposes the
- * previously applied textures to avoid GPU memory leaks.
+ * Applies (or clears) an equirect environment texture, for reflections and
+ * optionally as the visible background. Disposes the previously applied one.
+ *
+ * No PMREMGenerator: WebGPURenderer prefilters `scene.environment` (and a
+ * blurred background) itself and caches the result per texture, on the WebGPU
+ * backend and the WebGL 2 fallback alike. Reflection and background therefore
+ * share one texture, and disposing it releases the prefiltered copy too.
  */
 export function applyEnvironment(
   scene: THREE.Scene,
-  renderer: THREE.WebGLRenderer,
   texture: THREE.Texture | null,
   options: EnvironmentOptions,
   previous: EnvironmentState = EMPTY_ENVIRONMENT,
 ): EnvironmentState {
-  if (previous.envMap) {
-    if (scene.environment === previous.envMap) scene.environment = null;
-    previous.envMap.dispose();
-  }
-  if (previous.backgroundTexture) {
-    if (scene.background === previous.backgroundTexture) scene.background = null;
-    previous.backgroundTexture.dispose();
+  if (previous.texture) {
+    if (scene.environment === previous.texture) scene.environment = null;
+    if (scene.background === previous.texture) scene.background = null;
+    previous.texture.dispose();
   }
 
-  if (!texture) return { envMap: null, backgroundTexture: null };
+  if (!texture) return EMPTY_ENVIRONMENT;
+  if (!options.useForReflection && !options.showBackground) {
+    texture.dispose();
+    return EMPTY_ENVIRONMENT;
+  }
 
-  let envMap: THREE.Texture | null = null;
   if (options.useForReflection) {
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    envMap = pmrem.fromEquirectangular(texture).texture;
-    pmrem.dispose();
-    scene.environment = envMap;
+    scene.environment = texture;
     scene.environmentIntensity = options.intensity;
   }
-
-  let backgroundTexture: THREE.Texture | null = null;
   if (options.showBackground) {
-    backgroundTexture = texture;
     scene.background = texture;
     scene.backgroundIntensity = options.intensity;
     scene.backgroundBlurriness = options.blurriness ?? 0;
-  } else {
-    // Not shown as background: the raw source is no longer referenced.
-    texture.dispose();
   }
 
-  return { envMap, backgroundTexture };
+  return { texture };
 }

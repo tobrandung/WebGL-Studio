@@ -120,6 +120,9 @@ export function CompareCanvas({
       return;
     }
     viewRef.current = view;
+    // The renderer comes up asynchronously, and a browser without WebGPU and
+    // WebGL 2 only says so then.
+    view.ready.catch((cause: Error) => setError(`Vorschau nicht verfügbar: ${cause.message}`));
 
     const observer = new ResizeObserver(() => view.resize());
     observer.observe(container);

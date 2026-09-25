@@ -2,10 +2,10 @@
  * Side-by-side renderer for the optimize dialog: the original on the left,
  * the compressed result on the right, from the same camera.
  *
- * One canvas, one renderer, two scissored viewports. Not two renderers. Two
- * would mean two WebGL contexts on top of the editor's, browsers cap the
- * total around eight to sixteen and evict the oldest, so opening and closing
- * this dialog enough times would kill the main viewport. Sharing one camera
+ * One canvas, one renderer, two scissored viewports. Not two renderers. On
+ * the WebGL fallback two would mean two contexts on top of the editor's,
+ * browsers cap the total around eight to sixteen and evict the oldest, so
+ * opening and closing this dialog enough times would kill the main viewport. Sharing one camera
  * for both draws also makes the two halves identical by construction rather
  * than by keeping two cameras in sync.
  *
@@ -14,13 +14,15 @@
  */
 
 import * as THREE from 'three';
+import { PMREMGenerator, type WebGPURenderer } from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { disposeObject3D } from './dispose';
+import { createModelLoader, createRenderer, disposeRenderer, prepareModel } from './renderer';
 
 export type CompareView = {
+  /** Settles once the renderer is up; rejects when the browser has no 3D. */
+  ready: Promise<void>;
   /** Replaces one side's model. Pass null to clear it. */
   setModel: (side: 'a' | 'b', buffer: ArrayBuffer | null) => Promise<void>;
   /** 0..1. Where the split sits, as a fraction of the canvas width. */
@@ -31,42 +33,26 @@ export type CompareView = {
 };
 
 /**
- * Loads a GLB without touching any editor state. Mirrors the loader setup in
- * `viewport.ts`. Including KTX2, because a source model may already carry
+ * Loads a GLB without touching any editor state, with the same loader setup
+ * as the editor. Including KTX2, because a source model may already carry
  * KTX2 textures and the left-hand side has to show it as it is.
  */
-async function loadPreviewModel(
-  renderer: THREE.WebGLRenderer,
-  buffer: ArrayBuffer,
-): Promise<THREE.Object3D> {
-  const loader = new GLTFLoader();
-  const draco = new DRACOLoader();
-  draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
-  // The compressed side is Draco whenever the option is on, so the decoder is
-  // needed on nearly every rebuild. Warming it up front avoids a stall.
-  draco.preload();
-  loader.setDRACOLoader(draco);
-
-  const { KTX2Loader } = await import('three/addons/loaders/KTX2Loader.js');
-  const ktx2 = new KTX2Loader();
-  ktx2.setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/libs/basis/');
-  ktx2.detectSupport(renderer);
-  loader.setKTX2Loader(ktx2);
-
+async function loadPreviewModel(renderer: WebGPURenderer, buffer: ArrayBuffer): Promise<THREE.Object3D> {
+  const { loader, dispose } = await createModelLoader(renderer);
   try {
     const gltf = await loader.parseAsync(buffer, '');
+    prepareModel(renderer, gltf.scene);
     return gltf.scene;
   } finally {
-    draco.dispose();
-    ktx2.dispose();
+    dispose();
   }
 }
 
 /**
  * Creates its own canvas inside `container` rather than taking one from React.
  *
- * `forceContextLoss()` on teardown makes that canvas element permanently
- * unusable. A later `getContext` on it returns a broken context whose
+ * On the WebGL fallback, disposing the renderer loses the context and makes
+ * that canvas element permanently unusable. A later `getContext` on it returns a broken context whose
  * `getShaderPrecisionFormat` is null. Under React's StrictMode, which mounts
  * every effect twice in development, a React-owned canvas would therefore be
  * dead on the second mount. Owning the element means teardown throws it away
@@ -77,13 +63,11 @@ export function createCompareView(container: HTMLElement): CompareView {
   canvas.className = 'h-full w-full block';
   container.appendChild(canvas);
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  // Matched to the editor viewport (viewport.ts) so the comparison does not
-  // look like a differently graded render of the same model.
-  renderer.toneMappingExposure = 1.2;
+  // Same renderer setup (and grading) as the editor viewport, so the
+  // comparison does not look like a differently graded render of the model.
+  // It comes up asynchronously; until then `render()` does nothing.
+  let renderer: WebGPURenderer | null = null;
+  let disposed = false;
 
   const sceneA = new THREE.Scene();
   const sceneB = new THREE.Scene();
@@ -93,20 +77,14 @@ export function createCompareView(container: HTMLElement): CompareView {
   // Damping needs an update() every frame, i.e. a permanent render loop. This
   // view renders on demand so it never competes with the editor's viewport.
   controls.enableDamping = false;
-  controls.enablePan = false;
+  // Panning (Shift/Ctrl/Cmd + left drag, or right drag) moves the one shared
+  // camera, so both halves follow it together.
+  controls.enablePan = true;
 
   // A fixed neutral environment, not the project's lights: those are editable,
   // and a comparison has to isolate what compression changed. The same PMREM
   // texture serves both scenes. Textures, unlike Object3Ds, can be shared.
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  // RoomEnvironment is a Scene full of meshes and has no dispose of its own;
-  // once the PMREM is baked its geometries and materials are dead weight that
-  // would accumulate with every dialog open.
-  const room = new RoomEnvironment();
-  const environment = pmrem.fromScene(room, 0.04).texture;
-  disposeObject3D(room);
-  sceneA.environment = environment;
-  sceneB.environment = environment;
+  let environment: THREE.Texture | null = null;
   for (const scene of [sceneA, sceneB]) {
     scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 0.6));
   }
@@ -158,7 +136,7 @@ export function createCompareView(container: HTMLElement): CompareView {
 
   function render(): void {
     const { width, height } = size();
-    if (!width || !height) return;
+    if (!renderer || !width || !height) return;
 
     // `setSize(…, false)` because the canvas is sized by CSS; writing inline
     // styles here would override the layout and freeze the ResizeObserver.
@@ -171,6 +149,11 @@ export function createCompareView(container: HTMLElement): CompareView {
     camera.aspect = Math.max(0.1, left / height);
     camera.updateProjectionMatrix();
 
+    // One clear for the whole canvas, then both halves without clearing:
+    // WebGPU clears the full target at the start of every render, scissor or
+    // not, so with autoClear the right half would wipe out the left.
+    renderer.setScissorTest(false);
+    renderer.clear();
     renderer.setScissorTest(true);
     renderer.setViewport(0, 0, left, height);
     renderer.setScissor(0, 0, left, height);
@@ -184,7 +167,37 @@ export function createCompareView(container: HTMLElement): CompareView {
 
   controls.addEventListener('change', render);
 
+  const ready = createRenderer({ canvas, alpha: true, pixelRatio: Math.min(window.devicePixelRatio, 2) }).then(
+    async (created) => {
+      if (disposed) {
+        await disposeRenderer(created);
+        canvas.remove();
+        return;
+      }
+      created.autoClear = false;
+      // A fixed neutral environment, not the project's lights: those are
+      // editable, and a comparison has to isolate what compression changed.
+      // The same PMREM texture serves both scenes. Textures, unlike Object3Ds,
+      // can be shared. RoomEnvironment is a Scene full of meshes and has no
+      // dispose of its own; once baked they would pile up with every open.
+      const pmrem = new PMREMGenerator(created);
+      const room = new RoomEnvironment();
+      environment = pmrem.fromScene(room, 0.04).texture;
+      disposeObject3D(room);
+      pmrem.dispose();
+      sceneA.environment = environment;
+      sceneB.environment = environment;
+      renderer = created;
+      render();
+    },
+    (err: unknown) => {
+      canvas.remove();
+      throw err;
+    },
+  );
+
   return {
+    ready,
     async setModel(side, buffer) {
       const existing = roots[side];
       if (existing) {
@@ -197,6 +210,8 @@ export function createCompareView(container: HTMLElement): CompareView {
         return;
       }
 
+      await ready;
+      if (!renderer) return;
       const object = await loadPreviewModel(renderer, buffer);
       // Recentred the same way the editor centres a model, so the two sides
       // stay aligned even when compression nudges the bounding box.
@@ -231,15 +246,17 @@ export function createCompareView(container: HTMLElement): CompareView {
         }
         roots[side] = null;
       }
-      environment.dispose();
-      pmrem.dispose();
-      renderer.dispose();
-      // Without this the context lingers; enough open/close cycles then hit
-      // the browser's context cap and take the editor viewport down with them.
-      // It also makes this canvas element unusable, which is exactly why the
-      // element is ours to throw away.
-      renderer.forceContextLoss();
-      canvas.remove();
+      disposed = true;
+      environment?.dispose();
+      // On the WebGL fallback this also loses the context. Without that it
+      // would linger, and enough open/close cycles would hit the browser's
+      // context cap and take the editor viewport down with them. It makes the
+      // canvas unusable, which is exactly why the element is ours to throw away.
+      if (renderer) {
+        const active = renderer;
+        renderer = null;
+        void disposeRenderer(active).finally(() => canvas.remove());
+      }
     },
   };
 }

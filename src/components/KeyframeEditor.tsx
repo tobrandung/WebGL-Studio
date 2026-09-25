@@ -10,11 +10,9 @@ import {
   Upload,
   Camera,
   SlidersHorizontal,
-  Eye,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -48,10 +46,6 @@ type KeyframeEditorProps = {
    * that going to the same one twice still moves the scrubber.
    */
   jumpSignal: { id: string; at: number } | null;
-  showSpline: boolean;
-  showMarkers: boolean;
-  onToggleSpline: (visible: boolean) => void;
-  onToggleMarkers: (visible: boolean) => void;
   onSelectKeyframe: (id: string | null) => void;
   onAddKeyframe: () => void;
   onJumpToKeyframe: (id: string) => void;
@@ -69,10 +63,6 @@ export function KeyframeEditor({
   speed,
   selectedKeyframeId,
   jumpSignal,
-  showSpline,
-  showMarkers,
-  onToggleSpline,
-  onToggleMarkers,
   onSelectKeyframe,
   onAddKeyframe,
   onJumpToKeyframe,
@@ -274,7 +264,7 @@ export function KeyframeEditor({
   );
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-20 border-t glass-surface">
+    <div>
       <div className="flex items-center gap-2 px-3 py-2">
         <Tooltip>
           <TooltipTrigger asChild>
@@ -351,40 +341,6 @@ export function KeyframeEditor({
       <Separator />
 
       <div className="flex items-center gap-3 px-3 py-1.5">
-        <div className="flex shrink-0 items-center gap-2.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Eye className="h-3.5 w-3.5" />
-                Anzeigen
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>Sichtbarkeit der Pfad-Hilfsobjekte im Viewport</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1.5">
-                <Switch id="show-spline" checked={showSpline} onCheckedChange={onToggleSpline} />
-                <Label htmlFor="show-spline" className="text-xs">Spline</Label>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>Kurve der Kamerafahrt ein-/ausblenden</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1.5">
-                <Switch id="show-markers" checked={showMarkers} onCheckedChange={onToggleMarkers} />
-                <Label htmlFor="show-markers" className="text-xs">Marker</Label>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>Keyframe-Punkte ein-/ausblenden (rot: Kamera, grün: Blickpunkt)</TooltipContent>
-          </Tooltip>
-        </div>
-
-        <Separator orientation="vertical" className="h-5" />
-
         <span className="shrink-0 text-xs text-muted-foreground">Keyframes</span>
 
         <div className="min-w-0 flex-1">

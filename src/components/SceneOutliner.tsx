@@ -20,6 +20,7 @@ import {
   Globe,
   Image as ImageIcon,
   Palette,
+  Square,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,7 +40,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import type { ModelEntry, SceneGroup, LightEntry, EnvironmentConfig } from '@/lib/db';
+import type { ModelEntry, SceneGroup, LightEntry, PlaneEntry, EnvironmentConfig } from '@/lib/db';
 
 type ReorderItem = { id: string; groupId: string | null };
 
@@ -47,7 +48,7 @@ type ReorderItem = { id: string; groupId: string | null };
  * Kinds that can be selected in the editor. `keyframe` never originates from
  * the outliner. It travels the same channel so only one gizmo is ever active.
  */
-export type OutlinerSelectionKind = 'model' | 'light' | 'environment' | 'world' | 'keyframe';
+export type OutlinerSelectionKind = 'model' | 'light' | 'plane' | 'environment' | 'world' | 'keyframe';
 
 const ENVIRONMENT_SELECTION_ID = '__environment__';
 export const WORLD_SELECTION_ID = '__world__';
@@ -63,6 +64,7 @@ type SceneOutlinerProps = {
   models: ModelEntry[];
   groups: SceneGroup[];
   lights: LightEntry[];
+  planes: PlaneEntry[];
   environment: EnvironmentConfig | null;
   background: string;
   selectedId: string | null;
@@ -80,6 +82,9 @@ type SceneOutlinerProps = {
   onToggleLightVisibility: (id: string) => void;
   onRenameLight: (id: string, name: string) => void;
   onDeleteLight: (id: string) => void;
+  onTogglePlaneVisibility: (id: string) => void;
+  onRenamePlane: (id: string, name: string) => void;
+  onDeletePlane: (id: string) => void;
   onRemoveEnvironment: () => void;
   onCreateGroup: () => void;
   onRenameGroup: (id: string, name: string) => void;
@@ -94,6 +99,7 @@ export function SceneOutliner({
   models,
   groups,
   lights,
+  planes,
   environment,
   background,
   selectedId,
@@ -109,6 +115,9 @@ export function SceneOutliner({
   onToggleLightVisibility,
   onRenameLight,
   onDeleteLight,
+  onTogglePlaneVisibility,
+  onRenamePlane,
+  onDeletePlane,
   onRemoveEnvironment,
   onCreateGroup,
   onRenameGroup,
@@ -120,7 +129,8 @@ export function SceneOutliner({
 }: SceneOutlinerProps) {
   const [renamingModelId, setRenamingModelId] = useState<string | null>(null);
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
-  const [renamingLightId, setRenamingLightId] = useState<string | null>(null);
+  /** Light or plane being renamed. Their ids are UUIDs, so one slot serves both. */
+  const [renamingFlatId, setRenamingFlatId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -155,12 +165,12 @@ export function SceneOutliner({
     [renameValue, onRenameGroup],
   );
 
-  const commitLightRename = useCallback(
-    (id: string) => {
-      if (renameValue.trim()) onRenameLight(id, renameValue.trim());
-      setRenamingLightId(null);
+  const commitFlatRename = useCallback(
+    (id: string, kind: 'light' | 'plane') => {
+      if (renameValue.trim()) (kind === 'light' ? onRenameLight : onRenamePlane)(id, renameValue.trim());
+      setRenamingFlatId(null);
     },
-    [renameValue, onRenameLight],
+    [renameValue, onRenameLight, onRenamePlane],
   );
 
   // Rebuilds the full ordered list after moving the dragged model into
@@ -332,22 +342,28 @@ export function SceneOutliner({
     );
   };
 
-  const renderLightRow = (light: LightEntry) => {
-    const isVisible = light.visible !== false;
-    const isSelected = selectedId === light.id && selectedKind === 'light';
-    const isRenaming = renamingLightId === light.id;
-    const Icon = lightIcon[light.type];
+  /** A row for the flat, ungrouped kinds: lights and planes. */
+  const renderFlatRow = (
+    item: { id: string; name: string; visible?: boolean },
+    kind: 'light' | 'plane',
+    Icon: typeof Square,
+  ) => {
+    const isVisible = item.visible !== false;
+    const isSelected = selectedId === item.id && selectedKind === kind;
+    const isRenaming = renamingFlatId === item.id;
+    const onToggle = kind === 'light' ? onToggleLightVisibility : onTogglePlaneVisibility;
+    const onRemove = kind === 'light' ? onDeleteLight : onDeletePlane;
 
     return (
       <div
-        key={light.id}
+        key={item.id}
         className={`group flex items-center gap-1 rounded-md px-2 py-1 ${
           isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
         }`}
-        onClick={() => onSelect(light.id, 'light')}
+        onClick={() => onSelect(item.id, kind)}
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => e.key === 'Enter' && onSelect(light.id, 'light')}
+        onKeyDown={(e) => e.key === 'Enter' && onSelect(item.id, kind)}
       >
         <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 
@@ -357,7 +373,7 @@ export function SceneOutliner({
               className="shrink-0 text-muted-foreground hover:text-foreground"
               onClick={(e) => {
                 e.stopPropagation();
-                onToggleLightVisibility(light.id);
+                onToggle(item.id);
               }}
               type="button"
               aria-label={isVisible ? 'Ausblenden' : 'Einblenden'}
@@ -373,10 +389,10 @@ export function SceneOutliner({
             className="h-6 flex-1 px-1 text-xs"
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
-            onBlur={() => commitLightRename(light.id)}
+            onBlur={() => commitFlatRename(item.id, kind)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') commitLightRename(light.id);
-              if (e.key === 'Escape') setRenamingLightId(null);
+              if (e.key === 'Enter') commitFlatRename(item.id, kind);
+              if (e.key === 'Escape') setRenamingFlatId(null);
               e.stopPropagation();
             }}
             onClick={(e) => e.stopPropagation()}
@@ -387,11 +403,11 @@ export function SceneOutliner({
             className={`flex-1 truncate text-xs ${!isVisible ? 'opacity-50' : ''}`}
             onDoubleClick={(e) => {
               e.stopPropagation();
-              setRenameValue(light.name);
-              setRenamingLightId(light.id);
+              setRenameValue(item.name);
+              setRenamingFlatId(item.id);
             }}
           >
-            {light.name}
+            {item.name}
           </span>
         )}
 
@@ -401,7 +417,7 @@ export function SceneOutliner({
               className="shrink-0 opacity-0 group-hover:opacity-100"
               onClick={(e) => e.stopPropagation()}
               type="button"
-              aria-label="Licht-Optionen"
+              aria-label={kind === 'light' ? 'Licht-Optionen' : 'Plane-Optionen'}
             >
               <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
@@ -409,15 +425,15 @@ export function SceneOutliner({
           <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
             <DropdownMenuItem
               onClick={() => {
-                setRenameValue(light.name);
-                setRenamingLightId(light.id);
+                setRenameValue(item.name);
+                setRenamingFlatId(item.id);
               }}
             >
               <Pencil className="mr-2 h-3.5 w-3.5" />
               Umbenennen
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-red-400 focus:text-red-400" onClick={() => onDeleteLight(light.id)}>
+            <DropdownMenuItem className="text-red-400 focus:text-red-400" onClick={() => onRemove(item.id)}>
               <Trash2 className="mr-2 h-3.5 w-3.5" />
               Löschen
             </DropdownMenuItem>
@@ -426,6 +442,9 @@ export function SceneOutliner({
       </div>
     );
   };
+
+  const renderLightRow = (light: LightEntry) => renderFlatRow(light, 'light', lightIcon[light.type]);
+  const renderPlaneRow = (plane: PlaneEntry) => renderFlatRow(plane, 'plane', Square);
 
   const renderWorldRow = () => {
     const isSelected = selectedKind === 'world';
@@ -518,7 +537,7 @@ export function SceneOutliner({
       <Sheet
         side="left"
         open={!collapsed}
-        className="absolute left-0 top-[49px] z-10 flex h-[calc(100%-49px)] w-[260px] flex-col border-r glass-surface"
+        className="timeline-aware absolute left-0 top-[49px] z-10 flex w-[260px] flex-col border-r glass-surface"
       >
         <div className="flex items-center justify-between px-3 py-2">
           <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">Scene</span>
@@ -558,6 +577,13 @@ export function SceneOutliner({
               <>
                 {sectionLabel('Licht')}
                 {[...lights].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map(renderLightRow)}
+              </>
+            )}
+
+            {planes.length > 0 && (
+              <>
+                {sectionLabel('Planes')}
+                {[...planes].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map(renderPlaneRow)}
               </>
             )}
 

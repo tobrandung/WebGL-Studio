@@ -30,6 +30,27 @@ export type LightEntry = {
   angle?: number;
   /** Soft cone edge (0-1) for spot lights. */
   penumbra?: number;
+  /** Renders a shadow map. Absent on older lights, which cast no shadow. */
+  castShadow?: boolean;
+  visible?: boolean;
+  order?: number;
+};
+
+/** A flat ground surface that catches shadows. */
+export type PlaneEntry = {
+  id: string;
+  name: string;
+  position: Vec3;
+  /** Euler angles in radians. Zero lies flat on the XZ floor. */
+  rotation: Vec3;
+  /** X and Z are the plane's width and depth; Y has no visible effect. */
+  scale: Vec3;
+  /** Hex color string, e.g. "#808080". Unused while `shadowOnly`. */
+  color: string;
+  /** Hides the surface itself and draws only the shadows falling on it. */
+  shadowOnly: boolean;
+  /** Shadow darkness (0-1) while `shadowOnly`. */
+  shadowOpacity: number;
   visible?: boolean;
   order?: number;
 };
@@ -144,6 +165,8 @@ export type Project = {
   groups?: SceneGroup[];
   /** Placed light sources. Older projects lack it and get seeded defaults. */
   lights?: LightEntry[];
+  /** Shadow-catching ground planes. Older projects lack it. */
+  planes?: PlaneEntry[];
   /** Optional single equirectangular environment for reflections/background. */
   environment?: EnvironmentConfig | null;
   /**

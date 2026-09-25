@@ -11,6 +11,7 @@ import {
   type SceneGroup,
   type LightEntry,
   type LightType,
+  type PlaneEntry,
   type EnvironmentConfig,
   type SaveStatus,
   type PlaybackMode,
@@ -31,6 +32,9 @@ import {
   setTransformMode,
   removeModel,
   applyViewportLights,
+  applyViewportPlanes,
+  setViewportOverlays,
+  modelsFloor,
   applyKeyframeMarkers,
   setViewportEnvironment,
   updateBackground,
@@ -40,7 +44,9 @@ import {
 } from '@/three/viewport';
 import { pickableKeyframeMarkers, findKeyframeMarker } from '@/three/keyframe-markers';
 import { createDefaultLights, createLightEntry, loadEquirectTexture } from '@/three/lighting';
+import { createPlaneEntry } from '@/three/planes';
 import { EditorToolbar } from '@/components/EditorToolbar';
+import { Sheet } from '@/components/ui/sheet';
 import { ModelUploadDialog } from '@/components/ModelUploadDialog';
 import { OptimizeDialog } from '@/components/model/OptimizeDialog';
 import {
@@ -87,6 +93,7 @@ type Transform = {
 type DragSnapshot =
   | { kind: 'model'; id: string; transform: Transform }
   | { kind: 'light'; lights: LightEntry[] }
+  | { kind: 'plane'; planes: PlaneEntry[] }
   | { kind: 'keyframe'; keyframes: Keyframe[] };
 
 type CameraPathSnapshot = { keyframes: Keyframe[]; isLoop: boolean; speed: number };
@@ -139,7 +146,9 @@ function sameTransform(a: Transform, b: Transform): boolean {
 export function EditorPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  /** Holds the viewport's canvas, which the viewport creates itself. */
+  const viewportHostRef = useRef<HTMLDivElement>(null);
+  const [rendererError, setRendererError] = useState<string | null>(null);
   const viewportRef = useRef<ViewportContext | null>(null);
 
   const [project, setProject] = useState<Project | null>(null);
@@ -171,6 +180,24 @@ export function EditorPage() {
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>('scroll');
   const [showSpline, setShowSpline] = useState(true);
   const [showMarkers, setShowMarkers] = useState(true);
+  const [showGrid, setShowGrid] = useState(true);
+  const [showLightHelpers, setShowLightHelpers] = useState(true);
+  // Master switch over every overlay. The individual ones keep their state
+  // underneath it, so turning it back on restores exactly what was showing.
+  const [showHelpers, setShowHelpers] = useState(true);
+  // Height of the camera-path bar, which the side panels end above. Kept after
+  // the bar closes, so the next open starts moving the panels on its first frame.
+  const [timelineHeight, setTimelineHeight] = useState(0);
+  const timelineRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    // Read on mount as well: the observer's first report only arrives with a
+    // later frame, and the panels should start moving with the bar.
+    const measure = () => setTimelineHeight(node.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   const [isDirty, setIsDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   /**
@@ -191,6 +218,7 @@ export function EditorPage() {
   const [resolvingConflict, setResolvingConflict] = useState(false);
   const [groups, setGroups] = useState<SceneGroup[]>([]);
   const [lights, setLights] = useState<LightEntry[]>([]);
+  const [planes, setPlanes] = useState<PlaneEntry[]>([]);
   const [environment, setEnvironment] = useState<EnvironmentConfig | null>(null);
   const [background, setBackground] = useState('#1a1a1a');
   // The live viewport instance kept in state (not just the ref) so that effects
@@ -223,6 +251,7 @@ export function EditorPage() {
   // without re-subscribing or capturing stale closures.
   const keyframesRef = useRef(keyframes);
   const lightsRef = useRef(lights);
+  const planesRef = useRef(planes);
   const groupsRef = useRef(groups);
   const modelsRef = useRef(models);
   const environmentRef = useRef(environment);
@@ -230,6 +259,7 @@ export function EditorPage() {
   const transparentRef = useRef(false);
   useEffect(() => { keyframesRef.current = keyframes; }, [keyframes]);
   useEffect(() => { lightsRef.current = lights; }, [lights]);
+  useEffect(() => { planesRef.current = planes; }, [planes]);
   useEffect(() => { groupsRef.current = groups; }, [groups]);
   useEffect(() => { modelsRef.current = models; }, [models]);
   useEffect(() => { environmentRef.current = environment; }, [environment]);
@@ -262,6 +292,7 @@ export function EditorPage() {
       // Seed default lights into state only (persisted lazily on first edit)
       // so untouched legacy projects are not marked dirty.
       setLights(p.lights && p.lights.length ? p.lights : createDefaultLights());
+      setPlanes(p.planes ?? []);
       setEnvironment(p.environment ?? null);
       setBackground(p.settings.background);
       // Deletions keep their blob around so undo can restore them; collect the
@@ -300,75 +331,116 @@ export function EditorPage() {
     }
   }, []);
 
-  // Init viewport
+  // Init viewport. Async since WebGPU: the renderer has to finish `init()`
+  // before anything may render. StrictMode mounts twice, so a viewport that
+  // resolves after its effect was cleaned up is disposed on arrival.
   useEffect(() => {
-    if (!canvasRef.current || !project) return;
-    const ctx = createViewport(canvasRef.current, project.settings.background, project.settings.transparent);
-    viewportRef.current = ctx;
-    setViewport(ctx);
+    const host = viewportHostRef.current;
+    if (!host || !project) return;
+    let cancelled = false;
+    let ctx: ViewportContext | null = null;
+    setRendererError(null);
 
-    ctx.transformControls.addEventListener('objectChange', () => {
-      // Read a dragged light's or keyframe marker's position back out of the
-      // THREE object into state so panels and persistence stay in sync.
-      const sel = selectionRef.current;
-      if (sel.kind === 'model' && sel.id) {
-        // Models keep their transform in the scene graph; mirror it so the
-        // numeric fields move along with the gizmo.
-        syncModelTransform(sel.id);
-      } else if (sel.kind === 'light' && sel.id) {
-        const record = ctx.lights.get(sel.id);
-        if (record) {
-          const p = record.light.position;
-          setLights((prev) =>
-            prev.map((l) => (l.id === sel.id ? { ...l, position: [p.x, p.y, p.z] } : l)),
-          );
+    createViewport(host, project.settings.background, project.settings.transparent).then(
+      (created) => {
+        if (cancelled) {
+          created.dispose();
+          return;
         }
-      } else if (sel.kind === 'keyframe' && sel.id) {
-        const parsed = parseKeyframeRef(sel.id);
-        const marker = parsed ? findKeyframeMarker(ctx.keyframeMarkers, sel.id) : null;
-        if (parsed && marker) {
-          const p = marker.position;
-          setKeyframes((prev) =>
-            prev.map((kf) =>
-              kf.id === parsed.id ? { ...kf, [parsed.part]: [p.x, p.y, p.z] as [number, number, number] } : kf,
-            ),
-          );
-        }
-      }
-      markDirty();
-    });
+        ctx = created;
+        wireViewport(created);
+      },
+      (err: unknown) => {
+        if (cancelled) return;
+        console.error('[Editor] Renderer konnte nicht starten:', err);
+        setRendererError(err instanceof Error ? err.message : String(err));
+      },
+    );
 
-    // Bracket each gizmo drag with a before/after snapshot so a transform is a
-    // single undo step. Without this the drag only marked the project dirty
-    // and undo fell through to whatever command came before it.
-    ctx.transformControls.addEventListener('dragging-changed', (event) => {
-      const sel = selectionRef.current;
-      if (event.value) {
-        if (sel.kind === 'model' && sel.id) {
-          const group = ctx.models.get(sel.id);
-          dragSnapshotRef.current = group
-            ? { kind: 'model', id: sel.id, transform: readTransform(group) }
-            : null;
-        } else if (sel.kind === 'light') {
-          dragSnapshotRef.current = { kind: 'light', lights: lightsRef.current };
-        } else if (sel.kind === 'keyframe') {
-          dragSnapshotRef.current = { kind: 'keyframe', keyframes: keyframesRef.current };
-        } else {
+    function wireViewport(ctx: ViewportContext) {
+      viewportRef.current = ctx;
+      setViewport(ctx);
+        ctx.transformControls.addEventListener('objectChange', () => {
+          // Read a dragged light's or keyframe marker's position back out of the
+          // THREE object into state so panels and persistence stay in sync.
+          const sel = selectionRef.current;
+          if (sel.kind === 'model' && sel.id) {
+            // Models keep their transform in the scene graph; mirror it so the
+            // numeric fields move along with the gizmo.
+            syncModelTransform(sel.id);
+          } else if (sel.kind === 'light' && sel.id) {
+            const record = ctx.lights.get(sel.id);
+            if (record) {
+              const p = record.light.position;
+              setLights((prev) =>
+                prev.map((l) => (l.id === sel.id ? { ...l, position: [p.x, p.y, p.z] } : l)),
+              );
+            }
+          } else if (sel.kind === 'plane' && sel.id) {
+            const record = ctx.planes.get(sel.id);
+            if (record) {
+              const { position: p, rotation: r, scale: sc } = record.mesh;
+              setPlanes((prev) =>
+                prev.map((pl) =>
+                  pl.id === sel.id
+                    ? { ...pl, position: [p.x, p.y, p.z], rotation: [r.x, r.y, r.z], scale: [sc.x, sc.y, sc.z] }
+                    : pl,
+                ),
+              );
+            }
+          } else if (sel.kind === 'keyframe' && sel.id) {
+            const parsed = parseKeyframeRef(sel.id);
+            const marker = parsed ? findKeyframeMarker(ctx.keyframeMarkers, sel.id) : null;
+            if (parsed && marker) {
+              const p = marker.position;
+              setKeyframes((prev) =>
+                prev.map((kf) =>
+                  kf.id === parsed.id ? { ...kf, [parsed.part]: [p.x, p.y, p.z] as [number, number, number] } : kf,
+                ),
+              );
+            }
+          }
+          markDirty();
+        });
+
+        // Bracket each gizmo drag with a before/after snapshot so a transform is a
+        // single undo step. Without this the drag only marked the project dirty
+        // and undo fell through to whatever command came before it.
+        ctx.transformControls.addEventListener('dragging-changed', (event) => {
+          const sel = selectionRef.current;
+          if (event.value) {
+            if (sel.kind === 'model' && sel.id) {
+              const group = ctx.models.get(sel.id);
+              dragSnapshotRef.current = group
+                ? { kind: 'model', id: sel.id, transform: readTransform(group) }
+                : null;
+            } else if (sel.kind === 'light') {
+              dragSnapshotRef.current = { kind: 'light', lights: lightsRef.current };
+            } else if (sel.kind === 'plane') {
+              dragSnapshotRef.current = { kind: 'plane', planes: planesRef.current };
+            } else if (sel.kind === 'keyframe') {
+              dragSnapshotRef.current = { kind: 'keyframe', keyframes: keyframesRef.current };
+            } else {
+              dragSnapshotRef.current = null;
+            }
+            return;
+          }
+
+          lastDragEndRef.current = performance.now();
+          const snapshot = dragSnapshotRef.current;
           dragSnapshotRef.current = null;
-        }
-        return;
-      }
+          if (snapshot) commitDragRef.current?.(snapshot, ctx.transformControls.mode as TransformMode);
+        });
 
-      lastDragEndRef.current = performance.now();
-      const snapshot = dragSnapshotRef.current;
-      dragSnapshotRef.current = null;
-      if (snapshot) commitDragRef.current?.(snapshot, ctx.transformControls.mode as TransformMode);
-    });
+    }
 
     return () => {
-      ctx.dispose();
-      if (viewportRef.current === ctx) viewportRef.current = null;
-      setViewport((current) => (current === ctx ? null : current));
+      cancelled = true;
+      if (!ctx) return;
+      const disposed = ctx;
+      disposed.dispose();
+      if (viewportRef.current === disposed) viewportRef.current = null;
+      setViewport((current) => (current === disposed ? null : current));
     };
   }, [project]);
 
@@ -378,18 +450,43 @@ export function EditorPage() {
     applyViewportLights(viewport, lights);
   }, [lights, viewport]);
 
+  useEffect(() => {
+    if (!viewport) return;
+    applyViewportPlanes(viewport, planes);
+  }, [planes, viewport]);
+
+  // Hold the viewport still while the optimize dialog covers it. It is out of
+  // sight anyway, and it must not render alongside the dialog's compare view:
+  // three.js keeps the transmission (glass) framebuffer texture in a module
+  // global, so two renderers at different sizes resize it against each other
+  // on every frame and invalidate each other's GPU copy (r186).
+  const optimizeOpen = optimizeSource !== null;
+  useEffect(() => {
+    if (!viewport) return;
+    viewport.setPaused(optimizeOpen);
+  }, [viewport, optimizeOpen]);
+
+  useEffect(() => {
+    if (!viewport) return;
+    setViewportOverlays(viewport, {
+      grid: showHelpers && showGrid,
+      lightHelpers: showHelpers && showLightHelpers,
+      planeOutlines: showHelpers,
+    });
+  }, [viewport, showHelpers, showGrid, showLightHelpers]);
+
   // Camera-path markers and spline. Owned here (not by the keyframe panel) so
   // the meshes are reconciled in place and the gizmo keeps its target; the path
   // is only pickable while the camera-path editor is open.
   useEffect(() => {
     if (!viewport) return;
     applyKeyframeMarkers(viewport, keyframes, {
-      showMarkers: showKeyframeEditor && showMarkers,
-      showSpline: showKeyframeEditor && showSpline,
+      showMarkers: showKeyframeEditor && showHelpers && showMarkers,
+      showSpline: showKeyframeEditor && showHelpers && showSpline,
       isLoop,
       selectedRef: selectedKind === 'keyframe' ? selectedId : null,
     });
-  }, [viewport, keyframes, isLoop, showKeyframeEditor, showMarkers, showSpline, selectedId, selectedKind]);
+  }, [viewport, keyframes, isLoop, showKeyframeEditor, showHelpers, showMarkers, showSpline, selectedId, selectedKind]);
 
   // Re-attach the gizmo once a freshly created marker mesh exists (selecting a
   // just-added keyframe runs before the sync effect has built its marker).
@@ -680,6 +777,23 @@ export function EditorPage() {
     [runCommand],
   );
 
+  /** Undoable replacement of the plane list. */
+  const commitPlanes = useCallback(
+    (type: string, label: string, next: PlaneEntry[], mergeKey?: string) => {
+      runCommand(
+        stateCommand({
+          type,
+          label,
+          before: planesRef.current,
+          after: next,
+          apply: setPlanes,
+          mergeKey,
+        }),
+      );
+    },
+    [runCommand],
+  );
+
   const applyOutliner = useCallback(
     (snapshot: OutlinerSnapshot) => {
       setGroups(snapshot.groups);
@@ -720,7 +834,7 @@ export function EditorPage() {
     // properties panel, which follows the mode) cannot claim rotate/scale.
     if (kind === 'light' || kind === 'keyframe') setTransformModeState('translate');
     if (!ctx) return;
-    if (kind === 'model' || kind === 'light' || kind === 'keyframe') {
+    if (kind === 'model' || kind === 'light' || kind === 'plane' || kind === 'keyframe') {
       selectObject(ctx, nextId, kind);
     } else {
       // environment, world or cleared selection: no gizmo
@@ -808,6 +922,21 @@ export function EditorPage() {
         return;
       }
 
+      if (snapshot.kind === 'plane') {
+        if (planesRef.current === snapshot.planes) return;
+        const name = snapshot.planes.find((pl) => pl.id === selectionRef.current.id)?.name;
+        pushCommand(
+          stateCommand({
+            type: `transform:plane:${mode}`,
+            label: name ? `${TRANSFORM_LABEL[mode]}: "${name}"` : TRANSFORM_LABEL[mode],
+            before: snapshot.planes,
+            after: planesRef.current,
+            apply: setPlanes,
+          }),
+        );
+        return;
+      }
+
       if (keyframesRef.current === snapshot.keyframes) return;
       pushCommand(
         stateCommand({
@@ -841,6 +970,8 @@ export function EditorPage() {
         label: name ? `${TRANSFORM_LABEL[mode]}: "${name}"` : TRANSFORM_LABEL[mode],
         execute: () => applyModelTransform(modelId, after),
         undo: () => applyModelTransform(modelId, before),
+        // Holding an arrow key in a field repeats fast; one undo step for it.
+        mergeKey: `model:${modelId}:${key}`,
       });
     },
     [runCommand, applyModelTransform],
@@ -892,6 +1023,7 @@ export function EditorPage() {
       cameraPath: { keyframes, isLoop, speed: cameraSpeed, playbackMode },
       groups,
       lights: lightsToSave,
+      planes,
       environment,
       updatedAt: Date.now(),
     };
@@ -924,7 +1056,7 @@ export function EditorPage() {
         setSaveStatus('offline');
       }
     }
-  }, [id, project, keyframes, isLoop, cameraSpeed, groups, lights, environment, background, updateModel]);
+  }, [id, project, keyframes, isLoop, cameraSpeed, groups, lights, planes, environment, background, updateModel]);
 
   /**
    * Resolves a save conflict, explicitly and in one direction or the other.
@@ -1411,6 +1543,66 @@ export function EditorPage() {
   );
 
   // ---------------------------------------------------------------------------
+  // Planes
+  // ---------------------------------------------------------------------------
+
+  const handleAddPlane = useCallback(() => {
+    const ctx = viewportRef.current;
+    // Right under the models, where a shadow-catching floor belongs.
+    const entry = createPlaneEntry(planesRef.current.length, ctx ? modelsFloor(ctx) : 0);
+    commitPlanes('plane:add', `"${entry.name}" hinzufügen`, [...planesRef.current, entry]);
+    applySelection(entry.id, 'plane');
+  }, [commitPlanes, applySelection]);
+
+  const handleUpdatePlane = useCallback(
+    (planeId: string, patch: Partial<PlaneEntry>) => {
+      commitPlanes(
+        'plane:update',
+        'Plane-Eigenschaft ändern',
+        planesRef.current.map((pl) => (pl.id === planeId ? { ...pl, ...patch } : pl)),
+        `plane:${planeId}:${Object.keys(patch).sort().join(',')}`,
+      );
+    },
+    [commitPlanes],
+  );
+
+  const handleDeletePlane = useCallback(
+    (planeId: string) => {
+      const name = planesRef.current.find((pl) => pl.id === planeId)?.name ?? 'Plane';
+      commitPlanes(
+        'plane:delete',
+        `"${name}" löschen`,
+        planesRef.current.filter((pl) => pl.id !== planeId),
+      );
+      if (selectionRef.current.id === planeId) applySelection(null, null);
+    },
+    [commitPlanes, applySelection],
+  );
+
+  const handleTogglePlaneVisibility = useCallback(
+    (planeId: string) => {
+      commitPlanes(
+        'plane:visibility',
+        'Plane ein-/ausblenden',
+        planesRef.current.map((pl) => (pl.id === planeId ? { ...pl, visible: pl.visible === false } : pl)),
+      );
+    },
+    [commitPlanes],
+  );
+
+  const handleRenamePlane = useCallback(
+    (planeId: string, name: string) => {
+      if (planesRef.current.find((pl) => pl.id === planeId)?.name === name) return;
+      commitPlanes(
+        'plane:rename',
+        `"${name}" umbenennen`,
+        planesRef.current.map((pl) => (pl.id === planeId ? { ...pl, name } : pl)),
+      );
+    },
+    [commitPlanes],
+  );
+
+  // ---------------------------------------------------------------------------
   // Environment / world
   // ---------------------------------------------------------------------------
 
@@ -1563,6 +1755,11 @@ export function EditorPage() {
     };
     return { id: entry.id, name: entry.name, ...transform };
   }, [selectedKind, selectedId, models, modelTransform]);
+
+  const selectedPlane = useMemo(
+    () => (selectedKind === 'plane' ? planes.find((pl) => pl.id === selectedId) ?? null : null),
+    [selectedKind, selectedId, planes],
+  );
 
   const selectKeyframe = useCallback(
     (keyframeId: string | null, part: KeyframePart = 'position') => {
@@ -1755,13 +1952,13 @@ export function EditorPage() {
     setTransformModeState(mode);
   }, []);
 
-  const handleCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+  const handleCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     pointerDownRef.current = { x: e.clientX, y: e.clientY };
   }, []);
 
-  const handleModelClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleModelClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const ctx = viewportRef.current;
-    if (!ctx || !canvasRef.current) return;
+    if (!ctx || !viewportHostRef.current) return;
     // Ignore the mouse-up that ends a gizmo drag; it would clear the selection.
     if (ctx.transformControls.dragging) return;
     if (performance.now() - lastDragEndRef.current < CLICK_AFTER_DRAG_MS) return;
@@ -1774,7 +1971,7 @@ export function EditorPage() {
     pointerDownRef.current = null;
     if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_SLOP_PX) return;
 
-    const rect = canvasRef.current.getBoundingClientRect();
+    const rect = viewportHostRef.current.getBoundingClientRect();
     const mouse = new THREE.Vector2(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
       -((e.clientY - rect.top) / rect.height) * 2 + 1,
@@ -1822,6 +2019,15 @@ export function EditorPage() {
         applySelection(obj.name, 'model');
         return;
       }
+    }
+
+    // After models, so a floor never steals a click aimed at the model on it.
+    // The raycaster ignores `visible`, hence the filter.
+    const planeMeshes = Array.from(ctx.planes.values(), (record) => record.mesh).filter((mesh) => mesh.visible);
+    const planeHit = raycaster.intersectObjects(planeMeshes, false)[0];
+    if (planeHit) {
+      applySelection(planeHit.object.name, 'plane');
+      return;
     }
     applySelection(null, null);
   }, [applySelection]);
@@ -1887,6 +2093,8 @@ export function EditorPage() {
           const sel = selectionRef.current;
           if (sel.kind === 'light' && sel.id) {
             handleDeleteLight(sel.id);
+          } else if (sel.kind === 'plane' && sel.id) {
+            handleDeletePlane(sel.id);
           } else if (sel.kind === 'keyframe' && sel.id) {
             const parsed = parseKeyframeRef(sel.id);
             if (parsed) handleDeleteKeyframe(parsed.id);
@@ -1919,6 +2127,7 @@ export function EditorPage() {
     duplicateSelected,
     handleTransformModeChange,
     handleDeleteLight,
+    handleDeletePlane,
     handleDeleteKeyframe,
     deleteModelWithHistory,
     applySelection,
@@ -1935,10 +2144,25 @@ export function EditorPage() {
   }
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden">
+    <div
+      className="relative h-screen w-screen overflow-hidden"
+      style={
+        {
+          '--timeline-offset': showKeyframeEditor ? `${timelineHeight}px` : '0px',
+          '--timeline-duration': showKeyframeEditor ? '440ms' : '300ms',
+        } as React.CSSProperties
+      }
+    >
       <EditorToolbar
         onAddModel={() => setShowUploadDialog(true)}
         onAddLight={handleAddLight}
+        onAddPlane={handleAddPlane}
+        overlays={{ all: showHelpers, grid: showGrid, lightHelpers: showLightHelpers, spline: showSpline, markers: showMarkers }}
+        onToggleAll={setShowHelpers}
+        onToggleGrid={setShowGrid}
+        onToggleLightHelpers={setShowLightHelpers}
+        onToggleSpline={setShowSpline}
+        onToggleMarkers={setShowMarkers}
         onAddEnvironment={() => setShowEnvDialog(true)}
         onOpenKeyframeEditor={handleToggleKeyframeEditor}
         keyframeEditorOpen={showKeyframeEditor}
@@ -1959,6 +2183,7 @@ export function EditorPage() {
         models={models}
         groups={groups}
         lights={lights}
+        planes={planes}
         environment={environment}
         background={background}
         selectedId={selectedId}
@@ -1974,6 +2199,9 @@ export function EditorPage() {
         onToggleLightVisibility={handleToggleLightVisibility}
         onRenameLight={handleRenameLight}
         onDeleteLight={handleDeleteLight}
+        onTogglePlaneVisibility={handleTogglePlaneVisibility}
+        onRenamePlane={handleRenamePlane}
+        onDeletePlane={handleDeletePlane}
         onRemoveEnvironment={handleRemoveEnvironment}
         onCreateGroup={handleCreateGroup}
         onRenameGroup={handleRenameGroup}
@@ -1983,12 +2211,17 @@ export function EditorPage() {
         collapsed={outlinerCollapsed}
         onToggleCollapse={() => setOutlinerCollapsed(!outlinerCollapsed)}
       />
-      <canvas
-        ref={canvasRef}
+      <div
+        ref={viewportHostRef}
         className="h-full w-full"
         onPointerDown={handleCanvasPointerDown}
         onClick={handleModelClick}
       />
+      {rendererError && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8">
+          <p className="max-w-sm text-center text-sm text-muted-foreground">{rendererError}</p>
+        </div>
+      )}
       {/* Sits under the toolbar and clear of both side panels. The wrapper is
           click-through so it never steals an orbit drag from the viewport. */}
       {(missingModels.length > 0 || publishFailures.length > 0 || publishingAssets) && (
@@ -2041,6 +2274,7 @@ export function EditorPage() {
         open={Boolean(
           selectedKind === 'world' ||
             (selectedKind === 'light' && selectedId) ||
+            selectedPlane ||
             (selectedKind === 'environment' && environment) ||
             selectedModel ||
             selectedKeyframe,
@@ -2051,6 +2285,8 @@ export function EditorPage() {
         scaleLocked={scaleLocked}
         onScaleLockChange={setScaleLocked}
         light={selectedKind === 'light' ? lights.find((l) => l.id === selectedId) ?? null : null}
+        plane={selectedPlane}
+        onUpdatePlane={handleUpdatePlane}
         environment={selectedKind === 'environment' ? environment : null}
         background={selectedKind === 'world' ? background : null}
         sceneEnvironment={environment}
@@ -2068,7 +2304,16 @@ export function EditorPage() {
         onDuplicateKeyframe={handleDuplicateKeyframe}
         onDeleteKeyframe={handleDeleteKeyframe}
       />
-      {showKeyframeEditor && (
+      {/* Mounted only while the sheet is on screen, so the timeline's Space
+          shortcut is gone once it has slid out. */}
+      {/* The surface sits on the sheet itself, like the side panels: on a child
+          of the animated element the backdrop blur has nothing behind it. */}
+      <Sheet
+        ref={timelineRef}
+        side="bottom"
+        open={showKeyframeEditor}
+        className="absolute bottom-0 left-0 right-0 z-20 border-t glass-surface"
+      >
         <KeyframeEditor
           viewportCtx={viewport}
           keyframes={keyframes}
@@ -2076,10 +2321,6 @@ export function EditorPage() {
           speed={cameraSpeed}
           selectedKeyframeId={selectedKeyframe?.keyframe.id ?? null}
           jumpSignal={jumpSignal}
-          showSpline={showSpline}
-          showMarkers={showMarkers}
-          onToggleSpline={setShowSpline}
-          onToggleMarkers={setShowMarkers}
           onSelectKeyframe={(keyframeId) => selectKeyframe(keyframeId)}
           onAddKeyframe={handleAddKeyframe}
           onJumpToKeyframe={handleJumpToKeyframe}
@@ -2089,7 +2330,7 @@ export function EditorPage() {
           onSpeedChange={handleSpeedChange}
           onImportPath={handleImportPath}
         />
-      )}
+      </Sheet>
       <ModelUploadDialog
         open={showUploadDialog}
         onOpenChange={setShowUploadDialog}
@@ -2135,6 +2376,7 @@ export function EditorPage() {
           settings: { ...project.settings, background },
           cameraPath: { keyframes, isLoop, speed: cameraSpeed, playbackMode },
           lights,
+          planes,
           environment,
         }}
         onPlaybackModeChange={setPlaybackMode}

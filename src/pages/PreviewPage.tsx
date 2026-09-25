@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import type { WebGPURenderer } from 'three/webgpu';
 import { ArrowLeft, Play, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getDB, environmentFormat, type Project, type PlaybackMode } from '@/lib/db';
@@ -13,9 +12,13 @@ import {
   applyEnvironment,
   loadEquirectTexture,
   createDefaultLights,
+  EMPTY_ENVIRONMENT,
   type LightRecord,
   type EnvironmentState,
 } from '@/three/lighting';
+import { syncPlanes, type PlaneRecord } from '@/three/planes';
+import { fitShadowCameras, freezeShadows, setMeshShadows, visibleBounds } from '@/three/shadows';
+import { createModelLoader, createRenderer, disposeRenderer, prepareModel } from '@/three/renderer';
 
 type PreviewMode = 'scroll' | 'autoplay';
 
@@ -24,8 +27,10 @@ export function PreviewPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  /** Holds the canvas, which each renderer creates for itself (see createViewport). */
+  const hostRef = useRef<HTMLDivElement>(null);
+  const rendererRef = useRef<WebGPURenderer | null>(null);
+  const [rendererError, setRendererError] = useState<string | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const progressRef = useRef(0);
@@ -64,7 +69,14 @@ export function PreviewPage() {
   }, [id, navigate]);
 
   useEffect(() => {
-    if (!canvasRef.current || !project) return;
+    const host = hostRef.current;
+    if (!host || !project) return;
+    let cancelled = false;
+    setRendererError(null);
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'block h-full w-full';
+    host.appendChild(canvas);
 
     const scene = new THREE.Scene();
     if (project.settings.transparent) {
@@ -74,7 +86,7 @@ export function PreviewPage() {
     }
     sceneRef.current = scene;
 
-    const camera = new THREE.PerspectiveCamera(45, canvasRef.current.clientWidth / canvasRef.current.clientHeight, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
     camera.position.set(3, 2, 5);
     cameraRef.current = camera;
 
@@ -90,55 +102,52 @@ export function PreviewPage() {
       }
     }
 
-    const renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current, antialias: true, alpha: project.settings.transparent });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    // updateStyle=false: this canvas is CSS-sized, and inline width/height from
-    // three would pin it, leaving the ResizeObserver below blind to container
-    // changes (it observes the canvas itself).
-    renderer.setSize(canvasRef.current.clientWidth, canvasRef.current.clientHeight, false);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2;
-    rendererRef.current = renderer;
-
     const lightStore = new Map<string, LightRecord>();
     syncLights(scene, project.lights && project.lights.length ? project.lights : createDefaultLights(), lightStore);
+    const planeStore = new Map<string, PlaneRecord>();
+    syncPlanes(scene, project.planes ?? [], planeStore);
+    const placed: THREE.Group[] = [];
 
-    let envState: EnvironmentState | null = null;
-    let envCancelled = false;
-    if (project.environment) {
-      const env = project.environment;
-      (async () => {
-        const data = await loadBlob(env.blobId, env.assetKey);
-        if (!data || envCancelled) return;
-        const texture = await loadEquirectTexture(new Blob([data]), env.fileName, environmentFormat(env));
-        if (envCancelled) {
-          texture.dispose();
-          return;
-        }
-        envState = applyEnvironment(scene, renderer, texture, {
-          showBackground: env.showBackground,
-          useForReflection: env.useForReflection,
-          intensity: env.intensity,
-          blurriness: env.blurriness,
-        });
-      })();
+    let renderer: WebGPURenderer | null = null;
+    let envState: EnvironmentState = EMPTY_ENVIRONMENT;
+    const resizeObserver = new ResizeObserver(() => {
+      camera.aspect = canvas.clientWidth / canvas.clientHeight;
+      camera.updateProjectionMatrix();
+      // updateStyle=false: the canvas is CSS-sized, and inline width/height
+      // from three would pin it, leaving this observer blind to later changes.
+      renderer?.setSize(canvas.clientWidth, canvas.clientHeight, false);
+    });
+
+    async function loadEnvironment() {
+      const env = project!.environment;
+      if (!env) return;
+      const data = await loadBlob(env.blobId, env.assetKey);
+      if (!data || cancelled) return;
+      const texture = await loadEquirectTexture(new Blob([data]), env.fileName, environmentFormat(env));
+      if (cancelled) {
+        texture.dispose();
+        return;
+      }
+      envState = applyEnvironment(scene, texture, {
+        showBackground: env.showBackground,
+        useForReflection: env.useForReflection,
+        intensity: env.intensity,
+        blurriness: env.blurriness,
+      });
     }
 
-    (async () => {
+    async function loadModels(active: WebGPURenderer) {
       const db = await getDB();
       const models = await db.getAllFromIndex('models', 'by-project', id!);
-      const gltfLoader = new GLTFLoader();
-      const dracoLoader = new DRACOLoader();
-      dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
-      gltfLoader.setDRACOLoader(dracoLoader);
-
+      const { loader, dispose } = await createModelLoader(active);
       await Promise.all(
         models.map(async (model) => {
           const data = await loadBlob(model.id, model.assetKey);
-          if (!data) return;
+          if (!data || cancelled) return;
           try {
-            const gltf = await gltfLoader.parseAsync(data, '');
+            const gltf = await loader.parseAsync(data, '');
+            setMeshShadows(gltf.scene);
+            prepareModel(active, gltf.scene);
             const wrapper = new THREE.Group();
             wrapper.add(gltf.scene);
             const box = new THREE.Box3().setFromObject(wrapper);
@@ -148,37 +157,72 @@ export function PreviewPage() {
             wrapper.rotation.set(...model.rotation);
             wrapper.scale.set(...model.scale);
             scene.add(wrapper);
+            placed.push(wrapper);
           } catch (err) {
             // One unreadable model must not blank the whole preview.
             console.error('[Preview] Modell konnte nicht geladen werden:', model.name, err);
           }
         }),
       );
-      dracoLoader.dispose();
+      dispose();
+    }
+
+    (async () => {
+      let created: WebGPURenderer;
+      try {
+        created = await createRenderer({
+          canvas,
+          alpha: project.settings.transparent,
+          pixelRatio: Math.min(window.devicePixelRatio, 2),
+        });
+      } catch (err) {
+        canvas.remove();
+        if (!cancelled) {
+          console.error('[Preview] Renderer konnte nicht starten:', err);
+          setRendererError(err instanceof Error ? err.message : String(err));
+        }
+        return;
+      }
+      if (cancelled) {
+        void disposeRenderer(created).finally(() => canvas.remove());
+        return;
+      }
+      renderer = created;
+      rendererRef.current = created;
+      created.setSize(canvas.clientWidth, canvas.clientHeight, false);
+      resizeObserver.observe(canvas);
+
+      await Promise.all([
+        loadEnvironment().catch((err) => console.error('[Preview] Umgebung konnte nicht geladen werden:', err)),
+        loadModels(created),
+      ]);
+      if (cancelled) return;
+
+      // The preview scene is static: fit the shadow cameras once and render
+      // each shadow map once, instead of on every frame.
+      const lights = Array.from(lightStore.values(), (record) => record.light);
+      fitShadowCameras(lights, visibleBounds(placed), visibleBounds(Array.from(planeStore.values(), (record) => record.mesh)));
+      freezeShadows(lights);
+
+      // Build every pipeline before the first frame, so the camera path does
+      // not stutter while shaders compile. Before the loop starts on purpose:
+      // compiling while the loop renders can fail pipeline creation (three.js
+      // #34632).
+      await created.compileAsync(scene, camera).catch(() => {});
+      if (cancelled) return;
+      void created.setAnimationLoop(() => created.render(scene, camera));
     })();
 
-    let animId = 0;
-    function animate() {
-      animId = requestAnimationFrame(animate);
-      renderer.render(scene, camera);
-    }
-    animate();
-
-    const resizeObserver = new ResizeObserver(() => {
-      if (!canvasRef.current) return;
-      camera.aspect = canvasRef.current.clientWidth / canvasRef.current.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(canvasRef.current.clientWidth, canvasRef.current.clientHeight, false);
-    });
-    resizeObserver.observe(canvasRef.current);
-
     return () => {
-      cancelAnimationFrame(animId);
+      cancelled = true;
       resizeObserver.disconnect();
-      envCancelled = true;
-      if (envState?.envMap) envState.envMap.dispose();
-      if (envState?.backgroundTexture) envState.backgroundTexture.dispose();
-      renderer.dispose();
+      envState.texture?.dispose();
+      if (renderer) {
+        const active = renderer;
+        void active.setAnimationLoop(null);
+        void disposeRenderer(active).finally(() => canvas.remove());
+      }
+      if (rendererRef.current === renderer) rendererRef.current = null;
     };
   }, [project, id]);
 
@@ -264,7 +308,12 @@ export function PreviewPage() {
           {mode === 'scroll' ? 'Scroll-Modus' : 'Autoplay'}
         </span>
       </div>
-      <canvas ref={canvasRef} className="h-full w-full" />
+      <div ref={hostRef} className="h-full w-full" />
+      {rendererError && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8">
+          <p className="max-w-sm text-center text-sm text-muted-foreground">{rendererError}</p>
+        </div>
+      )}
     </div>
   );
 }

@@ -6,7 +6,6 @@
 
 import { MAX_DECODE_PIXELS } from './decode-hdr.ts';
 import { probeSDR } from './decode-sdr.ts';
-import { encodeUltraHDR } from './encode-ultrahdr.ts';
 import { extensionForFormat, extensionOf, sniffEnvironmentFormat, slugifyName } from './format.ts';
 import { probeEquirect } from './pipeline.ts';
 import type {
@@ -148,7 +147,10 @@ export async function convertEnvironment(
               maxComponent: data.maxComponent,
             };
             pending.push(
-              encodeUltraHDR(image, {
+              // Loaded on first use: the encoder brings the classic
+              // WebGLRenderer (gainmap-js has no WebGPU encode path), which
+              // nothing else in the app needs any more.
+              import('./encode-ultrahdr.ts').then(({ encodeUltraHDR }) => encodeUltraHDR(image, {
                 quality: job.quality,
                 onProgress: (fraction) =>
                   options.onProgress?.({
@@ -164,7 +166,7 @@ export async function convertEnvironment(
                   width: image.width,
                   height: image.height,
                 });
-              }),
+              })),
             );
             break;
           }

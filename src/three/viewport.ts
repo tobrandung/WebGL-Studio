@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import type { WebGPURenderer } from 'three/webgpu';
 import {
   syncLights,
   applyEnvironment,
@@ -21,27 +20,46 @@ import {
 } from './keyframe-markers';
 import type { Keyframe } from './camera-path';
 import { disposeObject3D } from './dispose';
-import type { LightEntry } from '@/lib/db';
+import { syncPlanes, type PlaneRecord } from './planes';
+import { fitShadowCameras, setMeshShadows, visibleBounds } from './shadows';
+import { createModelLoader, createRenderer, disposeRenderer, prepareModel } from './renderer';
+import type { LightEntry, PlaneEntry } from '@/lib/db';
 
-export type SelectionKind = 'model' | 'light' | 'keyframe';
+export type SelectionKind = 'model' | 'light' | 'plane' | 'keyframe';
 
 export type ViewportContext = {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  renderer: THREE.WebGLRenderer;
+  renderer: WebGPURenderer;
+  /** Created by the viewport inside the host element, and removed with it. */
+  canvas: HTMLCanvasElement;
   orbitControls: OrbitControls;
   transformControls: TransformControls;
   models: Map<string, THREE.Group>;
   lights: Map<string, LightRecord>;
+  planes: Map<string, PlaneRecord>;
   keyframeMarkers: KeyframeMarkerState;
   environmentState: EnvironmentState;
   selectedModelId: string | null;
   selectedId: string | null;
   selectedKind: SelectionKind | null;
+  /** Stops or restarts the render loop, e.g. while a dialog covers the view. */
+  setPaused: (paused: boolean) => void;
   dispose: () => void;
 };
 
 export type TransformMode = 'translate' | 'rotate' | 'scale';
+
+/**
+ * Editor furniture lives on its own camera layers, so hiding it from the view
+ * never touches `visible`. That flag already means "hidden by the user" for a
+ * light, and its helper follows it.
+ */
+const LAYER_GRID = 1;
+const LAYER_LIGHT_HELPERS = 2;
+const LAYER_PLANE_OUTLINES = 3;
+
+export type ViewportOverlays = { grid: boolean; lightHelpers: boolean; planeOutlines: boolean };
 
 /**
  * The one format we accept. GLB is a single binary container that carries its
@@ -58,11 +76,31 @@ export function isSupportedModelFile(filename: string): boolean {
   return (IMPORT_EXTENSIONS as readonly string[]).includes(ext);
 }
 
-export function createViewport(
-  canvas: HTMLCanvasElement,
+/**
+ * Builds the editor viewport inside `host`, on a canvas of its own.
+ *
+ * The canvas is created here rather than handed in because a renderer cannot
+ * share one with its successor: on the WebGL fallback `dispose()` loses the
+ * canvas's context for good, so a remount (StrictMode, a project reload) on
+ * the same element would render into a dead context.
+ */
+export async function createViewport(
+  host: HTMLElement,
   background: string,
   transparent: boolean,
-): ViewportContext {
+): Promise<ViewportContext> {
+  const canvas = document.createElement('canvas');
+  canvas.className = 'block h-full w-full';
+  host.appendChild(canvas);
+
+  let renderer: WebGPURenderer;
+  try {
+    renderer = await createRenderer({ canvas, alpha: transparent, pixelRatio: Math.min(window.devicePixelRatio, 2) });
+  } catch (err) {
+    canvas.remove();
+    throw err;
+  }
+
   const scene = new THREE.Scene();
 
   if (transparent) {
@@ -74,19 +112,18 @@ export function createViewport(
   const camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
   camera.position.set(3, 2, 5);
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: transparent });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   // updateStyle=false: the canvas is sized by CSS (`h-full w-full`). Letting
   // three write inline width/height would pin it to its start size, and since
   // the ResizeObserver below watches the canvas itself, it would then never see
   // the container change again. The viewport could never follow the window.
   renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.2;
 
   const gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x222222);
+  gridHelper.layers.set(LAYER_GRID);
   scene.add(gridHelper);
+  camera.layers.enable(LAYER_GRID);
+  camera.layers.enable(LAYER_LIGHT_HELPERS);
+  camera.layers.enable(LAYER_PLANE_OUTLINES);
 
   const orbitControls = new OrbitControls(camera, canvas);
   orbitControls.enableDamping = true;
@@ -100,17 +137,23 @@ export function createViewport(
 
   const models = new Map<string, THREE.Group>();
   const lights = new Map<string, LightRecord>();
+  const planes = new Map<string, PlaneRecord>();
   const keyframeMarkers = createKeyframeMarkerState();
-  let animationId = 0;
   let disposed = false;
 
   function animate() {
-    if (disposed) return;
-    animationId = requestAnimationFrame(animate);
     orbitControls.update();
+    // Refit every frame: models and planes move, load, hide and disappear
+    // from many places in the editor, and the bounds are cached per geometry,
+    // so this costs a handful of box transforms instead of a hook at each site.
+    fitShadowCameras(
+      Array.from(lights.values(), (record) => record.light),
+      visibleBounds(models.values()),
+      visibleBounds(Array.from(planes.values(), (record) => record.mesh)),
+    );
     renderer.render(scene, camera);
   }
-  animate();
+  void renderer.setAnimationLoop(animate);
 
   function handleResize() {
     if (disposed) return;
@@ -127,26 +170,33 @@ export function createViewport(
     scene,
     camera,
     renderer,
+    canvas,
     orbitControls,
     transformControls,
     models,
     lights,
+    planes,
     keyframeMarkers,
     environmentState: EMPTY_ENVIRONMENT,
     selectedModelId: null,
     selectedId: null,
     selectedKind: null,
+    setPaused(paused) {
+      if (disposed) return;
+      void renderer.setAnimationLoop(paused ? null : animate);
+    },
     dispose() {
       disposed = true;
       disposeKeyframeMarkers(scene, keyframeMarkers);
       for (const model of models.values()) disposeObject3D(model);
       models.clear();
       syncLights(scene, [], lights, { helpers: true });
-      cancelAnimationFrame(animationId);
+      syncPlanes(scene, [], planes, { helpers: true });
+      void renderer.setAnimationLoop(null);
       resizeObserver.disconnect();
       transformControls.dispose();
       orbitControls.dispose();
-      renderer.dispose();
+      void disposeRenderer(renderer).finally(() => canvas.remove());
     },
   };
 }
@@ -154,6 +204,33 @@ export function createViewport(
 /** Reconciles the editor scene lights with the given entries (with helpers). */
 export function applyViewportLights(ctx: ViewportContext, entries: LightEntry[]) {
   syncLights(ctx.scene, entries, ctx.lights, { helpers: true });
+  // Layers are not inherited, and the directional and spot helpers draw
+  // through children, so every part of a helper has to move.
+  for (const record of ctx.lights.values()) {
+    record.helper?.traverse((part) => part.layers.set(LAYER_LIGHT_HELPERS));
+  }
+}
+
+/** Shows or hides the grid, light helpers and plane outlines in the editor view. */
+export function setViewportOverlays(ctx: ViewportContext, overlays: ViewportOverlays) {
+  if (overlays.grid) ctx.camera.layers.enable(LAYER_GRID);
+  else ctx.camera.layers.disable(LAYER_GRID);
+  if (overlays.lightHelpers) ctx.camera.layers.enable(LAYER_LIGHT_HELPERS);
+  else ctx.camera.layers.disable(LAYER_LIGHT_HELPERS);
+  if (overlays.planeOutlines) ctx.camera.layers.enable(LAYER_PLANE_OUTLINES);
+  else ctx.camera.layers.disable(LAYER_PLANE_OUTLINES);
+}
+
+/** Reconciles the editor ground planes with the given entries (with outlines). */
+export function applyViewportPlanes(ctx: ViewportContext, entries: PlaneEntry[]) {
+  syncPlanes(ctx.scene, entries, ctx.planes, { helpers: true });
+  for (const record of ctx.planes.values()) record.helper?.layers.set(LAYER_PLANE_OUTLINES);
+}
+
+/** Height of the lowest visible model point, where a new plane belongs. */
+export function modelsFloor(ctx: ViewportContext): number {
+  const box = visibleBounds(ctx.models.values());
+  return box.isEmpty() ? 0 : box.min.y;
 }
 
 /** Reconciles the camera-path markers and spline with the given keyframes. */
@@ -171,7 +248,7 @@ export function setViewportEnvironment(
   texture: THREE.Texture | null,
   options: EnvironmentOptions,
 ) {
-  ctx.environmentState = applyEnvironment(ctx.scene, ctx.renderer, texture, options, ctx.environmentState);
+  ctx.environmentState = applyEnvironment(ctx.scene, texture, options, ctx.environmentState);
 }
 
 /**
@@ -219,7 +296,12 @@ export function captureThumbnail(ctx: ViewportContext, width = 640, height = 360
     const target = (record.light as THREE.SpotLight).target as THREE.Object3D | undefined;
     if (target) keep.add(target);
   }
+  for (const record of ctx.planes.values()) keep.add(record.mesh);
   const furniture = ctx.scene.children.filter((child) => child.visible && !keep.has(child));
+  // A plane's outline is a child of the plane, so it survives the filter above.
+  for (const record of ctx.planes.values()) {
+    if (record.helper?.visible) furniture.push(record.helper);
+  }
   for (const child of furniture) child.visible = false;
 
   try {
@@ -281,27 +363,17 @@ export async function loadModelFromBuffer(
     throw new Error(`Unsupported format: ${fileName}`);
   }
 
-  const loader = new GLTFLoader();
-  const dracoLoader = new DRACOLoader();
-  dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
-  loader.setDRACOLoader(dracoLoader);
-  // Lazily imported: only needed for GLBs authored with KTX2/Basis-compressed
-  // textures, so users who never touch that pay nothing for it.
-  const { KTX2Loader } = await import('three/addons/loaders/KTX2Loader.js');
-  const ktx2Loader = new KTX2Loader();
-  ktx2Loader.setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/libs/basis/');
-  ktx2Loader.detectSupport(ctx.renderer);
-  loader.setKTX2Loader(ktx2Loader);
-
+  const { loader, dispose } = await createModelLoader(ctx.renderer);
   let object: THREE.Object3D;
   try {
     const gltf = await loader.parseAsync(buffer, '');
     object = gltf.scene;
   } finally {
-    dracoLoader.dispose();
-    ktx2Loader.dispose();
+    dispose();
   }
 
+  setMeshShadows(object);
+  prepareModel(ctx.renderer, object);
   const wrapper = new THREE.Group();
   wrapper.add(object);
   wrapper.name = id;
@@ -320,7 +392,7 @@ export async function loadModelFromBuffer(
   return wrapper;
 }
 
-/** Unified selection for models and lights; attaches the transform gizmo. */
+/** Unified selection for models, lights and planes; attaches the transform gizmo. */
 export function selectObject(ctx: ViewportContext, id: string | null, kind: SelectionKind | null) {
   ctx.selectedId = id;
   ctx.selectedKind = id ? kind : null;
@@ -334,6 +406,13 @@ export function selectObject(ctx: ViewportContext, id: string | null, kind: Sele
   if (kind === 'model') {
     const model = ctx.models.get(id);
     if (model) ctx.transformControls.attach(model);
+    return;
+  }
+
+  if (kind === 'plane') {
+    const plane = ctx.planes.get(id);
+    if (plane) ctx.transformControls.attach(plane.mesh);
+    else ctx.transformControls.detach();
     return;
   }
 
@@ -366,7 +445,8 @@ export function selectModel(ctx: ViewportContext, id: string | null) {
 /** Returns false when the mode is rejected for the current selection. */
 export function setTransformMode(ctx: ViewportContext, mode: TransformMode): boolean {
   // Lights and keyframe markers are translate-only; ignore rotate/scale there.
-  if (ctx.selectedKind !== null && ctx.selectedKind !== 'model' && mode !== 'translate') return false;
+  const fullTransform = ctx.selectedKind === 'model' || ctx.selectedKind === 'plane';
+  if (ctx.selectedKind !== null && !fullTransform && mode !== 'translate') return false;
   ctx.transformControls.setMode(mode);
   return true;
 }

@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { InfoHint } from '@/components/ui/info-hint';
 import { cn, formatBytes } from '@/lib/utils';
-import { environmentFormat, type LightEntry, type EnvironmentConfig } from '@/lib/db';
+import { environmentFormat, type LightEntry, type PlaneEntry, type EnvironmentConfig } from '@/lib/db';
 import { BUDGET_OK } from '@/lib/hdri/budget';
 import { ENVIRONMENT_FORMAT_LABEL } from '@/lib/hdri/format';
 import type { Keyframe, KeyframePart } from '@/three/camera-path';
@@ -54,6 +54,7 @@ type PropertiesPanelProps = {
   scaleLocked: boolean;
   onScaleLockChange: (locked: boolean) => void;
   light: LightEntry | null;
+  plane: PlaneEntry | null;
   environment: EnvironmentConfig | null;
   /** Non-null when the world/background entry is selected. */
   background: string | null;
@@ -67,6 +68,7 @@ type PropertiesPanelProps = {
   keyframe: KeyframeSelection | null;
   onUpdateModelTransform: (key: ModelTransformKey, value: [number, number, number]) => void;
   onUpdateLight: (id: string, patch: Partial<LightEntry>) => void;
+  onUpdatePlane: (id: string, patch: Partial<PlaneEntry>) => void;
   onUpdateEnvironment: (patch: Partial<EnvironmentConfig>) => void;
   onReplaceEnvironment: () => void;
   onUpdateBackground: (color: string) => void;
@@ -103,6 +105,7 @@ export function PropertiesPanel({
   scaleLocked,
   onScaleLockChange,
   light,
+  plane,
   environment,
   background,
   sceneEnvironment,
@@ -110,6 +113,7 @@ export function PropertiesPanel({
   keyframe,
   onUpdateModelTransform,
   onUpdateLight,
+  onUpdatePlane,
   onUpdateEnvironment,
   onReplaceEnvironment,
   onUpdateBackground,
@@ -125,7 +129,7 @@ export function PropertiesPanel({
     <Sheet
       side="right"
       open={open}
-      className="absolute right-0 top-[49px] z-10 flex h-[calc(100%-49px)] w-[260px] flex-col border-l glass-surface"
+      className="timeline-aware absolute right-0 top-[49px] z-10 flex w-[260px] flex-col border-l glass-surface"
     >
       <div className="px-3 py-2">
         <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
@@ -153,6 +157,16 @@ export function PropertiesPanel({
           />
         )}
         {light && <LightProperties light={light} onUpdate={onUpdateLight} />}
+        {plane && (
+          <PlaneProperties
+            plane={plane}
+            transformMode={transformMode}
+            onTransformModeChange={onTransformModeChange}
+            scaleLocked={scaleLocked}
+            onScaleLockChange={onScaleLockChange}
+            onUpdate={onUpdatePlane}
+          />
+        )}
         {keyframe && (
           <KeyframeProperties
             selection={keyframe}
@@ -459,6 +473,20 @@ function LightProperties({
         />
       </Row>
 
+      {/* Ambient light has no direction, so there is nothing to cast. */}
+      {light.type !== 'ambient' && (
+        <div className="flex items-center justify-between">
+          <Label htmlFor="light-shadow" className="text-xs">
+            Wirft Schatten
+          </Label>
+          <Switch
+            id="light-shadow"
+            checked={light.castShadow === true}
+            onCheckedChange={(castShadow) => onUpdate(light.id, { castShadow })}
+          />
+        </div>
+      )}
+
       {(light.type === 'point' || light.type === 'spot') && (
         <>
           <Row>
@@ -507,6 +535,88 @@ function LightProperties({
             />
           </Row>
         </>
+      )}
+    </>
+  );
+}
+
+/**
+ * A plane moves like a model, so it reuses the model's transform channels,
+ * gizmo switch and proportional lock, plus its own surface settings.
+ */
+function PlaneProperties({
+  plane,
+  transformMode,
+  onTransformModeChange,
+  scaleLocked,
+  onScaleLockChange,
+  onUpdate,
+}: {
+  plane: PlaneEntry;
+  transformMode: TransformMode;
+  onTransformModeChange: (mode: TransformMode) => void;
+  scaleLocked: boolean;
+  onScaleLockChange: (locked: boolean) => void;
+  onUpdate: (id: string, patch: Partial<PlaneEntry>) => void;
+}) {
+  return (
+    <>
+      <ModelProperties
+        model={plane}
+        transformMode={transformMode}
+        onTransformModeChange={onTransformModeChange}
+        scaleLocked={scaleLocked}
+        onScaleLockChange={onScaleLockChange}
+        onUpdate={(key, value) => onUpdate(plane.id, { [key]: value })}
+      />
+
+      <Separator />
+
+      <div className="flex items-center justify-between">
+        <Label htmlFor="plane-shadow-only" className="text-xs">
+          Nur Schatten
+        </Label>
+        {/* The hint sits after the switch so every ⓘ lines up on the right edge. */}
+        <div className="flex items-center gap-2">
+          <Switch
+            id="plane-shadow-only"
+            checked={plane.shadowOnly}
+            onCheckedChange={(shadowOnly) => onUpdate(plane.id, { shadowOnly })}
+          />
+          <InfoHint label="Nur Schatten: Hinweis">
+            Blendet die Fläche aus und zeigt nur die Schatten, die auf sie fallen.
+          </InfoHint>
+        </div>
+      </div>
+
+      {plane.shadowOnly ? (
+        <Row>
+          <ValueLabel label="Deckkraft" value={`${Math.round(plane.shadowOpacity * 100)} %`} />
+          <Slider
+            min={0}
+            max={1}
+            step={0.01}
+            value={[plane.shadowOpacity]}
+            onValueChange={([v]) => onUpdate(plane.id, { shadowOpacity: v })}
+          />
+        </Row>
+      ) : (
+        <Row>
+          <Label htmlFor="plane-color" className="text-xs">
+            Farbe
+          </Label>
+          <div className="flex items-center gap-2">
+            <input
+              id="plane-color"
+              type="color"
+              value={plane.color}
+              onChange={(e) => onUpdate(plane.id, { color: e.target.value })}
+              className="h-8 w-10 cursor-pointer rounded border border-border bg-transparent"
+              aria-label="Plane-Farbe"
+            />
+            <span className="text-xs text-muted-foreground">{plane.color}</span>
+          </div>
+        </Row>
       )}
     </>
   );
@@ -599,6 +709,34 @@ function EnvironmentProperties({
 
 const AXES = ['X', 'Y', 'Z'] as const;
 
+/**
+ * Arrow-key increments for an axis field: plain, with Shift (coarse) and with
+ * Alt (fine). `min` stops a nudge from pushing the value below it, so scale
+ * cannot step through zero into a mirrored model.
+ */
+type AxisStep = { step: number; coarse: number; fine: number; min?: number };
+
+const UNIT_STEP: AxisStep = { step: 0.01, coarse: 0.1, fine: 0.001 };
+/** Scale is a factor, so its steps sit one decade above position: Shift is a whole 1×. */
+const SCALE_STEP: AxisStep = { step: 0.1, coarse: 1, fine: 0.01, min: 0.001 };
+/** In degrees; Shift snaps in 15° like Blender's and Cinema 4D's rotate snap. */
+const ANGLE_STEP: AxisStep = { step: 1, coarse: 15, fine: 0.1 };
+
+/** The arrow-key line for a field's tooltip, derived so it cannot drift from the steps. */
+function arrowHint(steps: AxisStep, unit = ''): string {
+  const n = (value: number) => `${value.toString().replace('.', ',')}${unit}`;
+  return `Pfeiltasten im Feld: ±${n(steps.step)}, mit Shift ⇧ ±${n(steps.coarse)}, mit Alt (Windows) bzw. ⌥ Option (Mac) ±${n(steps.fine)}.`;
+}
+
+function nudge(value: number, direction: 1 | -1, e: React.KeyboardEvent, steps: AxisStep): number {
+  const size = e.shiftKey ? steps.coarse : e.altKey ? steps.fine : steps.step;
+  // Rounded to kill float noise (0.06 + 0.1 = 0.16000000000000003) without
+  // snapping away precision the value already had.
+  let next = Math.round((value + direction * size) * 1e6) / 1e6;
+  if (steps.min !== undefined && next < steps.min) next = Math.min(value, steps.min);
+  return next;
+}
+
 /** Trims float noise so a gizmo drag doesn't fill the fields with 14 digits. */
 function formatAxis(value: number): string {
   return Number(value.toFixed(3)).toString();
@@ -617,11 +755,13 @@ function AxisInputs({
   label,
   value,
   onChange,
+  steps = UNIT_STEP,
 }: {
   /** Names the fields for screen readers; the visible heading is separate. */
   label: string;
   value: [number, number, number];
   onChange: (next: [number, number, number]) => void;
+  steps?: AxisStep;
 }) {
   const [draft, setDraft] = useState<{ axis: number; text: string } | null>(null);
 
@@ -647,6 +787,17 @@ function AxisInputs({
             onBlur={(e) => commit(index, e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') e.currentTarget.blur();
+              if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                // Starts from what is typed, so a half-entered value can be
+                // nudged instead of being thrown away.
+                e.preventDefault();
+                const typed = draft?.axis === index ? Number.parseFloat(draft.text.replace(',', '.')) : NaN;
+                const from = Number.isFinite(typed) ? typed : value[index];
+                setDraft(null);
+                const next: [number, number, number] = [...value];
+                next[index] = nudge(from, e.key === 'ArrowUp' ? 1 : -1, e, steps);
+                if (next[index] !== value[index]) onChange(next);
+              }
             }}
             inputMode="decimal"
             spellCheck={false}
@@ -671,7 +822,10 @@ function Vec3Field({
 }) {
   return (
     <Row>
-      <Label className="text-xs">{label}</Label>
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-xs">{label}</Label>
+        <InfoHint label={`${label}: Tastatur`}>{arrowHint(UNIT_STEP)}</InfoHint>
+      </div>
       <AxisInputs label={label} value={value} onChange={onChange} />
     </Row>
   );
@@ -693,14 +847,19 @@ function TransformChannel({
   active,
   onActivate,
   action,
+  steps = UNIT_STEP,
+  hint,
 }: {
   icon: LucideIcon;
   label: string;
   value: [number, number, number];
   onChange: (next: [number, number, number]) => void;
+  steps?: AxisStep;
+  /** Leads the tooltip; the arrow-key steps are appended to it. */
+  hint?: string;
   active?: boolean;
   onActivate?: () => void;
-  /** Optional control on the heading row, e.g. the proportional lock. */
+  /** Optional control under the fields, e.g. the proportional lock. */
   action?: React.ReactNode;
 }) {
   const heading = (
@@ -730,9 +889,13 @@ function TransformChannel({
             {heading}
           </span>
         )}
-        {action}
+        <InfoHint label={`${label}: Hinweise`}>
+          {hint && <p>{hint}</p>}
+          <p>{arrowHint(steps, steps === ANGLE_STEP ? '°' : '')}</p>
+        </InfoHint>
       </div>
-      <AxisInputs label={label} value={value} onChange={onChange} />
+      <AxisInputs label={label} value={value} onChange={onChange} steps={steps} />
+      {action && <div className="flex">{action}</div>}
     </Row>
   );
 }
@@ -785,6 +948,7 @@ function ModelProperties({
         onChange={(next) => onUpdate('position', next)}
         active={transformMode === 'translate'}
         onActivate={() => onTransformModeChange('translate')}
+        hint="Die hervorgehobene Zeile ist das Werkzeug im Viewport. Verschieben mit G."
       />
 
       {/* Degrees, because radians in an input field are unreadable. */}
@@ -797,6 +961,8 @@ function ModelProperties({
         }
         active={transformMode === 'rotate'}
         onActivate={() => onTransformModeChange('rotate')}
+        steps={ANGLE_STEP}
+        hint="Drehen im Viewport mit R."
       />
 
       <TransformChannel
@@ -806,6 +972,8 @@ function ModelProperties({
         onChange={commitScale}
         active={transformMode === 'scale'}
         onActivate={() => onTransformModeChange('scale')}
+        steps={SCALE_STEP}
+        hint="Skalieren im Viewport mit S. Mit „Proportional“ genügt ein Wert, die anderen Achsen folgen im gleichen Verhältnis."
         action={
           <button
             type="button"
@@ -827,15 +995,6 @@ function ModelProperties({
         }
       />
 
-      {scaleLocked && (
-        <p className="text-[11px] text-muted-foreground">
-          Proportional: ein Wert genügt, die anderen Achsen folgen im gleichen Verhältnis.
-        </p>
-      )}
-
-      <p className="text-[11px] text-muted-foreground">
-        Die hervorgehobene Zeile ist das Werkzeug im Viewport. Mit G, R und S umschalten.
-      </p>
     </>
   );
 }
