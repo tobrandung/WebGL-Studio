@@ -77,7 +77,12 @@ export async function pushProject(
   });
 
   if (response.status === 409) {
-    const body = (await response.json()) as { error?: string; author?: string };
+    const body = (await response.json()) as { error?: string; author?: string; etag?: string };
+    // A refused If-Match with no current ETag means there is no remote document
+    // at all, so nobody else's version is at stake. Copies duplicated before the
+    // ETag was stripped carry their original's; this is what lets them recover.
+    // Without If-Match the server still refuses to overwrite, so this cannot loop.
+    if (ifMatch && !body.etag) return pushProject(document);
     throw new ApiError(
       'conflict',
       body.author

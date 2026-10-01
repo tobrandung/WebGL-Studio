@@ -109,8 +109,12 @@ export function useProjects() {
 
       const now = Date.now();
       const newId = generateId();
+      // The original's ETag belongs to the original's document. Carried over,
+      // the copy's first save would send it as If-Match for a key that does not
+      // exist yet and be refused as a conflict on every save after.
+      const { remote: _remote, ...rest } = existing;
       const duplicate: Project = {
-        ...existing,
+        ...rest,
         id: newId,
         name: `${existing.name} (Kopie)`,
         createdAt: now,
